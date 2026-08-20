@@ -13,6 +13,8 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 - Run game: `nix run .#`
 - Dev shell (live editing): `nix develop .#` then `python3 tetris.py`
 - Build: `nix build .#`
+- Tests + mypy: `nix flake check .#` (hermetic, runs `checks.default` pytest and `checks.mypy`)
+- Tests in dev shell: `python3 -m pytest tests -v`
 - Controls: arrows move, Down soft drop, Up/X and Z rotate, Space hard drop, P pause, R restart (after game over), Q quit
 
 ## Nix findings (hard-won — do not rediscover)
@@ -24,20 +26,25 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 - `nix shell .#` resolves to `packages.default`, not the devShell. Use `.#devShells.<system>.default` explicitly.
 - `nix shell --command` in this nix version execs argv directly with no shell: builtins (`echo ...`) and multi-word commands fail. Pass real binaries only.
 - The built package uses Python 3.14 (`lib/python3.14/site-packages`) and has no `bin/python` — invoke `bin/py-tetris`.
+- Flake source of a git worktree is computed from the **git state**: modified tracked files are included, but **untracked files are excluded**. New files (e.g. `tests/`) must be at least `git add`ed before they appear in flake builds. (Dirty state is reported as `<rev>-dirty`.)
+- Hermetic check derivations need `doCheck = true` (stdenv default is false — checkPhase is silently skipped) and an `installPhase = "mkdir -p $out"` or the build fails with "failed to produce output path".
+- `python3.withPackages (ps: ...)` is the right way to get a buildable env with `python` + modules on PYTHONPATH; its `.env` attribute is interactive-only and fails under `nix shell --expr`.
 
 ## Testing / verification
 
-- Game logic (`Game` class) is headless; no display needed for logic tests.
+- `tests/test_tetris.py` — 35 headless pytest cases: bag fairness, rotation math + wall kicks (incl. a fuzz over positions), movement bounds, soft/hard drop scoring, line clears, score table, level-ups, gravity/pause, game over, full-game simulation, one headless rendered frame (SDL dummy driver).
+- Run hermetically: `nix flake check .#` (flake `checks`: `default` = pytest, `mypy` = `mypy --strict tetris.py`). CI (`.github/workflows/ci.yml`) runs `nix build .#` + `nix flake check` on push/PR.
+- `tetris.py` is fully type-hinted and mypy `--strict` clean.
 - Headless run check:
   `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 6 nix run .# --option substituters "https://cache.nixos.org"`
   Expect the `pygame-ce ... (SDL ...)` banner and no traceback; being killed by timeout = success.
-- A `fc-list` UserWarning in sandboxed runs is harmless (fontconfig timeout); `SysFont` falls back to the bundled default font.
-- Verified by a throwaway smoke script: rotations + kicks, soft/hard drop, 2-line clear scoring, one rendered frame, and a full game played to game over. Pattern is in git history of this session if needed (script was in /tmp, not committed).
+- A `fc-list` UserWarning in sandboxed runs is harmless (fontconfig timeout); `SysFont` falls back to the bundled default font. Tests use `pygame.font.Font(None, ...)` (bundled font) to avoid fontconfig entirely.
 
 ## Git
 
-- Repo initialized, first commit `a0f677c`.
-- `.envrc` (`use flake`) committed; `.direnv/`, `__pycache__/`, `result` gitignored.
+- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones.
+- `.envrc` (`use flake`) committed; `.direnv/`, `__pycache__/`, `result`, `*.swp` gitignored.
+- M2 work (tests, type hints, flake checks, CI) was in progress when this was last updated.
 
 ## Known limitations (see `.opencode/milestones.md`)
 

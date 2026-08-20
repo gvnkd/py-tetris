@@ -19,10 +19,11 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 
 ## M2 — Engineering
 
-- [ ] Pytest suite for game logic (headless): bag fairness, SRS kicks, lock delay, scoring table, line clears, game over
-- [ ] Flake `checks` output wired to the test suite (`nix flake check` runs it)
-- [ ] CI: GitHub Actions on push — `nix build .#` + flake checks
-- [ ] Type hints on `tetris.py` + mypy pass
+- [x] Pytest suite for game logic (headless): bag fairness, wall kicks (incl. position fuzz), bounds, drops + scoring, line clears, score table, level-ups, gravity/pause, game over, full-game simulation, headless render — 35 tests in `tests/test_tetris.py`
+- [x] Flake `checks` output: `checks.default` (pytest) and `checks.mypy` (`mypy --strict`), both green via `nix flake check`
+- [x] CI: GitHub Actions (`.github/workflows/ci.yml`) — `nix build .#` + `nix flake check` on push/PR (active once the repo is pushed to GitHub)
+- [x] Full type hints on `tetris.py`, mypy `--strict` clean
+- [ ] SRS-kick and lock-delay test cases — deferred to M1 (they test features that don't exist yet)
 
 ## M3 — Nix polish
 

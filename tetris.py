@@ -16,6 +16,8 @@ import sys
 
 import pygame
 
+Color = tuple[int, int, int]
+
 COLS = 10
 ROWS = 20
 CELL = 30
@@ -26,15 +28,15 @@ WIDTH = BOARD_W + SIDEBAR_W
 HEIGHT = BOARD_H
 FPS = 60
 
-BG = (16, 16, 22)
-PANEL = (24, 24, 34)
-GRID = (36, 36, 50)
-BORDER = (80, 80, 105)
-WHITE = (235, 235, 240)
-DIM = (140, 140, 160)
-GHOST = (95, 95, 120)
+BG: Color = (16, 16, 22)
+PANEL: Color = (24, 24, 34)
+GRID: Color = (36, 36, 50)
+BORDER: Color = (80, 80, 105)
+WHITE: Color = (235, 235, 240)
+DIM: Color = (140, 140, 160)
+GHOST: Color = (95, 95, 120)
 
-SHAPES = {
+SHAPES: dict[str, list[tuple[int, int]]] = {
     "I": [(0, 1), (1, 1), (2, 1), (3, 1)],
     "O": [(0, 0), (1, 0), (0, 1), (1, 1)],
     "T": [(1, 0), (0, 1), (1, 1), (2, 1)],
@@ -44,9 +46,9 @@ SHAPES = {
     "L": [(2, 0), (0, 1), (1, 1), (2, 1)],
 }
 
-BOX = {"I": 4, "O": 2, "T": 3, "S": 3, "Z": 3, "J": 3, "L": 3}
+BOX: dict[str, int] = {"I": 4, "O": 2, "T": 3, "S": 3, "Z": 3, "J": 3, "L": 3}
 
-COLORS = {
+COLORS: dict[str, Color] = {
     "I": (0, 190, 255),
     "O": (250, 200, 0),
     "T": (170, 60, 255),
@@ -56,33 +58,53 @@ COLORS = {
     "L": (255, 130, 30),
 }
 
-KICKS = ((0, 0), (-1, 0), (1, 0), (0, -1), (-2, 0), (2, 0), (1, -1), (-1, -1))
-SCORE_TABLE = {0: 0, 1: 100, 2: 300, 3: 500, 4: 800}
+KICKS: tuple[tuple[int, int], ...] = (
+    (0, 0), (-1, 0), (1, 0), (0, -1), (-2, 0), (2, 0), (1, -1), (-1, -1)
+)
+SCORE_TABLE: dict[int, int] = {0: 0, 1: 100, 2: 300, 3: 500, 4: 800}
 
 
-def rotate_cells(cells, direction, size):
+def rotate_cells(
+    cells: frozenset[tuple[int, int]], direction: int, size: int
+) -> frozenset[tuple[int, int]]:
     if direction >= 0:
         return frozenset((size - 1 - y, x) for x, y in cells)
     return frozenset((y, size - 1 - x) for x, y in cells)
 
 
-def shade(color, amount):
-    return tuple(max(0, min(255, c + amount)) for c in color)
+def shade(color: Color, amount: int) -> Color:
+    r, g, b = color
+    return (
+        max(0, min(255, r + amount)),
+        max(0, min(255, g + amount)),
+        max(0, min(255, b + amount)),
+    )
 
 
 class Piece:
-    def __init__(self, kind):
-        self.kind = kind
-        self.cells = frozenset(SHAPES[kind])
-        self.x = (COLS - BOX[kind]) // 2
-        self.y = 0
+    def __init__(self, kind: str) -> None:
+        self.kind: str = kind
+        self.cells: frozenset[tuple[int, int]] = frozenset(SHAPES[kind])
+        self.x: int = (COLS - BOX[kind]) // 2
+        self.y: int = 0
 
 
 class Game:
-    def __init__(self):
+    board: list[list[Color | None]]
+    bag: list[str]
+    score: int
+    lines: int
+    level: int
+    over: bool
+    paused: bool
+    next_kind: str
+    piece: Piece | None
+    drop_timer: float
+
+    def __init__(self) -> None:
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self.board = [[None] * COLS for _ in range(ROWS)]
         self.bag = []
         self.score = 0
@@ -95,17 +117,17 @@ class Game:
         self.drop_timer = 0.0
         self.spawn()
 
-    def _draw_kind(self):
+    def _draw_kind(self) -> str:
         if not self.bag:
             self.bag = list(SHAPES)
             random.shuffle(self.bag)
         return self.bag.pop()
 
     @property
-    def drop_delay(self):
+    def drop_delay(self) -> float:
         return max(0.08, 0.60 - (self.level - 1) * 0.05)
 
-    def collides(self, cells, ox, oy):
+    def collides(self, cells: frozenset[tuple[int, int]], ox: int, oy: int) -> bool:
         for cx, cy in cells:
             x, y = ox + cx, oy + cy
             if x < 0 or x >= COLS or y >= ROWS:
@@ -114,13 +136,13 @@ class Game:
                 return True
         return False
 
-    def spawn(self):
+    def spawn(self) -> None:
         self.piece = Piece(self.next_kind)
         self.next_kind = self._draw_kind()
         if self.collides(self.piece.cells, self.piece.x, self.piece.y):
             self.over = True
 
-    def move(self, dx, dy):
+    def move(self, dx: int, dy: int) -> bool:
         p = self.piece
         if p is not None and not self.collides(p.cells, p.x + dx, p.y + dy):
             p.x += dx
@@ -128,7 +150,7 @@ class Game:
             return True
         return False
 
-    def rotate(self, direction=1):
+    def rotate(self, direction: int = 1) -> None:
         p = self.piece
         if p is None:
             return
@@ -140,7 +162,7 @@ class Game:
                 p.y += ky
                 return
 
-    def drop_distance(self):
+    def drop_distance(self) -> int:
         p = self.piece
         if p is None:
             return 0
@@ -149,20 +171,25 @@ class Game:
             d += 1
         return d
 
-    def soft_drop(self):
+    def soft_drop(self) -> None:
         if self.move(0, 1):
             self.score += 1
         else:
             self.lock()
 
-    def hard_drop(self):
+    def hard_drop(self) -> None:
+        p = self.piece
+        if p is None:
+            return
         d = self.drop_distance()
-        self.piece.y += d
+        p.y += d
         self.score += 2 * d
         self.lock()
 
-    def lock(self):
+    def lock(self) -> None:
         p = self.piece
+        if p is None:
+            return
         color = COLORS[p.kind]
         for cx, cy in p.cells:
             x, y = p.x + cx, p.y + cy
@@ -171,16 +198,17 @@ class Game:
         self._clear_lines()
         self.spawn()
 
-    def _clear_lines(self):
+    def _clear_lines(self) -> None:
         kept = [row for row in self.board if any(c is None for c in row)]
         cleared = ROWS - len(kept)
         if cleared:
-            self.board = [[None] * COLS for _ in range(cleared)] + kept
+            fresh: list[list[Color | None]] = [[None] * COLS for _ in range(cleared)]
+            self.board = fresh + kept
             self.lines += cleared
             self.level = self.lines // 10 + 1
             self.score += SCORE_TABLE[cleared] * self.level
 
-    def update(self, dt):
+    def update(self, dt: float) -> None:
         if self.over or self.paused or self.piece is None:
             return
         self.drop_timer += dt / 1000.0
@@ -193,7 +221,9 @@ class Game:
                     return
 
 
-def draw_cell(surf, x, y, color, size=CELL):
+def draw_cell(
+    surf: pygame.Surface, x: int, y: int, color: Color, size: int = CELL
+) -> None:
     rect = pygame.Rect(x * size, y * size, size, size)
     pygame.draw.rect(surf, color, rect)
     hi = shade(color, 55)
@@ -205,11 +235,18 @@ def draw_cell(surf, x, y, color, size=CELL):
     pygame.draw.rect(surf, shade(color, -90), rect, 1)
 
 
-def draw_text(surf, text, x, y, font, color=WHITE):
+def draw_text(
+    surf: pygame.Surface,
+    text: str,
+    x: int,
+    y: int,
+    font: pygame.font.Font,
+    color: Color = WHITE,
+) -> None:
     surf.blit(font.render(text, True, color), (x, y))
 
 
-def draw_preview(surf, kind, rect, cell=22):
+def draw_preview(surf: pygame.Surface, kind: str, rect: pygame.Rect, cell: int = 22) -> None:
     cells = SHAPES[kind]
     min_x = min(cx for cx, _ in cells)
     max_x = max(cx for cx, _ in cells)
@@ -225,13 +262,19 @@ def draw_preview(surf, kind, rect, cell=22):
         pygame.draw.rect(surf, shade(COLORS[kind], -70), r, 1)
 
 
-def draw_panel(surf, rect, title, font, f_small):
+def draw_panel(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    title: str,
+    font: pygame.font.Font,
+    f_small: pygame.font.Font,
+) -> None:
     pygame.draw.rect(surf, PANEL, rect, border_radius=6)
     pygame.draw.rect(surf, BORDER, rect, 1, border_radius=6)
     draw_text(surf, title, rect.x + 10, rect.y + 8, f_small, DIM)
 
 
-def draw(screen, game, fonts):
+def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font]) -> None:
     screen.fill(BG)
     board_rect = pygame.Rect(0, 0, BOARD_W, BOARD_H)
     pygame.draw.rect(screen, PANEL, board_rect)
@@ -302,14 +345,14 @@ def draw(screen, game, fonts):
         draw_text(screen, "R - restart   Q - quit", BOARD_W // 2, BOARD_H // 2 + 30, f_med, DIM)
 
 
-def main():
+def main() -> None:
     random.seed()
     pygame.init()
     pygame.key.set_repeat(170, 60)
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Tetris")
     clock = pygame.time.Clock()
-    fonts = {
+    fonts: dict[str, pygame.font.Font] = {
         "small": pygame.font.SysFont(None, 20),
         "med": pygame.font.SysFont(None, 30),
         "big": pygame.font.SysFont(None, 40),
