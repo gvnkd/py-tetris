@@ -6,13 +6,19 @@ Controls:
     Up / X            rotate clockwise
     Z                 rotate counter-clockwise
     Space             hard drop
+    C                 hold piece
+    M                 mute / unmute sounds
     P                 pause
     R                 restart (after game over)
     Q                 quit
 """
 
+import math
+import os
 import random
+import struct
 import sys
+from dataclasses import dataclass
 
 import pygame
 
@@ -27,6 +33,8 @@ SIDEBAR_W = 210
 WIDTH = BOARD_W + SIDEBAR_W
 HEIGHT = BOARD_H
 FPS = 60
+LOCK_DELAY = 0.5  # seconds a grounded piece may slide/rotate before locking
+MAX_LOCK_RESETS = 15  # move/rotate resets per grounded spell (stops infinite spin)
 
 BG: Color = (16, 16, 22)
 PANEL: Color = (24, 24, 34)
@@ -58,10 +66,31 @@ COLORS: dict[str, Color] = {
     "L": (255, 130, 30),
 }
 
-KICKS: tuple[tuple[int, int], ...] = (
-    (0, 0), (-1, 0), (1, 0), (0, -1), (-2, 0), (2, 0), (1, -1), (-1, -1)
-)
 SCORE_TABLE: dict[int, int] = {0: 0, 1: 100, 2: 300, 3: 500, 4: 800}
+
+# SRS wall kicks: (from_state, to_state) -> candidate (dx, dy) offsets.
+# +dy is down, matching board coordinates.
+JLSTZ_KICKS: dict[tuple[int, int], tuple[tuple[int, int], ...]] = {
+    (0, 1): ((0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)),
+    (1, 0): ((0, 0), (1, 0), (1, 1), (0, -2), (1, -2)),
+    (1, 2): ((0, 0), (1, 0), (1, 1), (0, -2), (1, -2)),
+    (2, 1): ((0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2)),
+    (2, 3): ((0, 0), (1, 0), (1, -1), (0, 2), (1, 2)),
+    (3, 2): ((0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)),
+    (3, 0): ((0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2)),
+    (0, 3): ((0, 0), (1, 0), (1, -1), (0, 2), (1, 2)),
+}
+
+I_KICKS: dict[tuple[int, int], tuple[tuple[int, int], ...]] = {
+    (0, 1): ((0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)),
+    (1, 0): ((0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)),
+    (1, 2): ((0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)),
+    (2, 1): ((0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)),
+    (2, 3): ((0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2)),
+    (3, 2): ((0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2)),
+    (3, 0): ((0, 0), (1, 0), (-2, 0), (1, 2), (-2, -1)),
+    (0, 3): ((0, 0), (-1, 0), (2, 0), (-1, -2), (2, 1)),
+}
 
 
 def rotate_cells(
@@ -81,12 +110,90 @@ def shade(color: Color, amount: int) -> Color:
     )
 
 
+def highscore_path() -> str:
+    base = os.environ.get("XDG_CONFIG_HOME", "")
+    if not base:
+        base = os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "py-tetris", "highscore")
+
+
+def load_highscore() -> int:
+    try:
+        with open(highscore_path(), encoding="utf-8") as f:
+            return max(0, int(f.read().strip() or 0))
+    except (OSError, ValueError):
+        return 0
+
+
+def save_highscore(score: int) -> None:
+    if score <= 0:
+        return
+    path = highscore_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"{score}\n")
+    except OSError:
+        pass
+
+
+def _tone(freq: float, ms: int, vol: float, rate: int = 22050) -> bytes:
+    """Render a simple sine tone (with linear fade-out) to 16-bit mono PCM."""
+    n = max(1, int(rate * ms / 1000))
+    out = bytearray()
+    amp = 32767.0 * vol
+    for i in range(n):
+        v = math.sin(2.0 * math.pi * freq * i / rate)
+        v *= (n - i) / n
+        out += struct.pack("<h", int(amp * v))
+    return bytes(out)
+
+
 class Piece:
     def __init__(self, kind: str) -> None:
         self.kind: str = kind
         self.cells: frozenset[tuple[int, int]] = frozenset(SHAPES[kind])
         self.x: int = (COLS - BOX[kind]) // 2
         self.y: int = 0
+        self.state: int = 0  # SRS rotation state: 0 spawn, 1 R, 2 180, 3 L
+
+
+@dataclass
+class Sounds:
+    enabled: bool = True
+    move: pygame.mixer.Sound | None = None
+    rotate: pygame.mixer.Sound | None = None
+    drop: pygame.mixer.Sound | None = None
+    hard: pygame.mixer.Sound | None = None
+    clear: pygame.mixer.Sound | None = None
+    tetris: pygame.mixer.Sound | None = None
+    over: pygame.mixer.Sound | None = None
+
+    @classmethod
+    def build(cls) -> "Sounds":
+        s = cls()
+        if not pygame.mixer.get_init():
+            return s
+        try:
+            fmt = pygame.mixer.get_init()
+            rate = fmt[0] if fmt and fmt[0] else 22050
+            s.move = pygame.mixer.Sound(buffer=_tone(240, 45, 0.3, rate))
+            s.rotate = pygame.mixer.Sound(buffer=_tone(440, 60, 0.35, rate))
+            s.drop = pygame.mixer.Sound(buffer=_tone(180, 50, 0.35, rate))
+            s.hard = pygame.mixer.Sound(buffer=_tone(90, 120, 0.5, rate))
+            s.clear = pygame.mixer.Sound(buffer=_tone(660, 130, 0.5, rate))
+            s.tetris = pygame.mixer.Sound(buffer=_tone(880, 220, 0.55, rate))
+            s.over = pygame.mixer.Sound(buffer=_tone(110, 700, 0.5, rate))
+        except pygame.error:
+            pass
+        return s
+
+    def play(self, name: str) -> None:
+        if not self.enabled:
+            return
+        snd = getattr(self, name, None)
+        if snd is not None:
+            snd.play()
 
 
 class Game:
@@ -100,8 +207,14 @@ class Game:
     next_kind: str
     piece: Piece | None
     drop_timer: float
+    lock_timer: float
+    lock_resets: int
+    held_kind: str | None
+    can_hold: bool
+    highscore: int
 
-    def __init__(self) -> None:
+    def __init__(self, highscore: int | None = None) -> None:
+        self.highscore = load_highscore() if highscore is None else highscore
         self.reset()
 
     def reset(self) -> None:
@@ -112,9 +225,13 @@ class Game:
         self.level = 1
         self.over = False
         self.paused = False
+        self.held_kind = None
+        self.can_hold = True
         self.next_kind = self._draw_kind()
         self.piece = None
         self.drop_timer = 0.0
+        self.lock_timer = 0.0
+        self.lock_resets = 0
         self.spawn()
 
     def _draw_kind(self) -> str:
@@ -127,6 +244,10 @@ class Game:
     def drop_delay(self) -> float:
         return max(0.08, 0.60 - (self.level - 1) * 0.05)
 
+    def grounded(self) -> bool:
+        p = self.piece
+        return p is not None and self.collides(p.cells, p.x, p.y + 1)
+
     def collides(self, cells: frozenset[tuple[int, int]], ox: int, oy: int) -> bool:
         for cx, cy in cells:
             x, y = ox + cx, oy + cy
@@ -136,9 +257,22 @@ class Game:
                 return True
         return False
 
-    def spawn(self) -> None:
+    def spawn(self, allow_hold: bool = True) -> None:
         self.piece = Piece(self.next_kind)
         self.next_kind = self._draw_kind()
+        self.can_hold = allow_hold
+        self.drop_timer = 0.0
+        self.lock_timer = 0.0
+        self.lock_resets = 0
+        if self.collides(self.piece.cells, self.piece.x, self.piece.y):
+            self.over = True
+
+    def spawn_held(self, kind: str) -> None:
+        self.piece = Piece(kind)
+        self.can_hold = False
+        self.drop_timer = 0.0
+        self.lock_timer = 0.0
+        self.lock_resets = 0
         if self.collides(self.piece.cells, self.piece.x, self.piece.y):
             self.over = True
 
@@ -147,20 +281,50 @@ class Game:
         if p is not None and not self.collides(p.cells, p.x + dx, p.y + dy):
             p.x += dx
             p.y += dy
+            if dy == 1:
+                self.can_hold = True
+            if self.grounded() and self.lock_resets < MAX_LOCK_RESETS:
+                self.lock_resets += 1
+                self.lock_timer = 0.0
             return True
         return False
 
-    def rotate(self, direction: int = 1) -> None:
+    def rotate(self, direction: int = 1) -> bool:
         p = self.piece
         if p is None:
-            return
+            return False
         new_cells = rotate_cells(p.cells, direction, BOX[p.kind])
-        for kx, ky in KICKS:
+        kicks = ((0, 0),) if p.kind == "O" else self._srs_kicks(direction)
+        for kx, ky in kicks:
             if not self.collides(new_cells, p.x + kx, p.y + ky):
                 p.cells = new_cells
                 p.x += kx
                 p.y += ky
-                return
+                if p.kind != "O":
+                    p.state = (p.state + direction) % 4
+                if self.grounded() and self.lock_resets < MAX_LOCK_RESETS:
+                    self.lock_resets += 1
+                    self.lock_timer = 0.0
+                return True
+        return False
+
+    def _srs_kicks(self, direction: int) -> tuple[tuple[int, int], ...]:
+        p = self.piece
+        assert p is not None
+        table = I_KICKS if p.kind == "I" else JLSTZ_KICKS
+        return table[(p.state, (p.state + direction) % 4)]
+
+    def hold(self) -> None:
+        p = self.piece
+        if p is None or not self.can_hold or self.over:
+            return
+        if self.held_kind is None:
+            self.held_kind = p.kind
+            self.spawn(allow_hold=False)
+        else:
+            saved = self.held_kind
+            self.held_kind = p.kind
+            self.spawn_held(saved)
 
     def drop_distance(self) -> int:
         p = self.piece
@@ -174,6 +338,7 @@ class Game:
     def soft_drop(self) -> None:
         if self.move(0, 1):
             self.score += 1
+            self.can_hold = True
         else:
             self.lock()
 
@@ -186,19 +351,22 @@ class Game:
         self.score += 2 * d
         self.lock()
 
-    def lock(self) -> None:
+    def lock(self) -> int:
         p = self.piece
         if p is None:
-            return
+            return 0
         color = COLORS[p.kind]
         for cx, cy in p.cells:
             x, y = p.x + cx, p.y + cy
             if 0 <= x < COLS and 0 <= y < ROWS:
                 self.board[y][x] = color
-        self._clear_lines()
+        cleared = self._clear_lines()
+        if self.score > self.highscore:
+            self.highscore = self.score
         self.spawn()
+        return cleared
 
-    def _clear_lines(self) -> None:
+    def _clear_lines(self) -> int:
         kept = [row for row in self.board if any(c is None for c in row)]
         cleared = ROWS - len(kept)
         if cleared:
@@ -207,18 +375,25 @@ class Game:
             self.lines += cleared
             self.level = self.lines // 10 + 1
             self.score += SCORE_TABLE[cleared] * self.level
+        return cleared
 
     def update(self, dt: float) -> None:
         if self.over or self.paused or self.piece is None:
             return
-        self.drop_timer += dt / 1000.0
-        while self.drop_timer >= self.drop_delay:
-            self.drop_timer -= self.drop_delay
-            if not self.move(0, 1):
+        if self.grounded():
+            self.drop_timer = 0.0
+            self.lock_timer += dt / 1000.0
+            if self.lock_timer >= LOCK_DELAY:
                 self.lock()
-                self.drop_timer = 0.0
-                if self.over or self.piece is None:
+                if self.over:
                     return
+        else:
+            self.lock_timer = 0.0
+            self.drop_timer += dt / 1000.0
+            while self.drop_timer >= self.drop_delay:
+                self.drop_timer -= self.drop_delay
+                if not self.move(0, 1):
+                    break
 
 
 def draw_cell(
@@ -266,7 +441,6 @@ def draw_panel(
     surf: pygame.Surface,
     rect: pygame.Rect,
     title: str,
-    font: pygame.font.Font,
     f_small: pygame.font.Font,
 ) -> None:
     pygame.draw.rect(surf, PANEL, rect, border_radius=6)
@@ -310,26 +484,38 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
     pw = SIDEBAR_W - 30
     f_small, f_med, f_big = fonts["small"], fonts["med"], fonts["big"]
 
-    next_rect = pygame.Rect(sx, 12, pw, 150)
-    draw_panel(screen, next_rect, "NEXT", f_small, f_small)
+    hold_rect = pygame.Rect(sx, 12, pw, 110)
+    draw_panel(screen, hold_rect, "HOLD", f_small)
+    if game.held_kind is not None:
+        draw_preview(screen, game.held_kind, hold_rect)
+        if not game.can_hold:
+            dim = pygame.Surface((hold_rect.w, hold_rect.h - 28), pygame.SRCALPHA)
+            dim.fill((0, 0, 0, 130))
+            screen.blit(dim, (hold_rect.x, hold_rect.y + 28))
+
+    next_rect = pygame.Rect(sx, 136, pw, 110)
+    draw_panel(screen, next_rect, "NEXT", f_small)
     draw_preview(screen, game.next_kind, next_rect)
 
-    info_rect = pygame.Rect(sx, 176, pw, 168)
-    draw_panel(screen, info_rect, "INFO", f_small, f_small)
-    draw_text(screen, "SCORE", sx + 10, info_rect.y + 34, f_small, DIM)
-    draw_text(screen, str(game.score), sx + 10, info_rect.y + 54, f_big, WHITE)
-    draw_text(screen, "LEVEL", sx + 10, info_rect.y + 90, f_small, DIM)
-    draw_text(screen, str(game.level), sx + 10, info_rect.y + 108, f_med, WHITE)
-    draw_text(screen, "LINES", sx + 10, info_rect.y + 132, f_small, DIM)
-    draw_text(screen, str(game.lines), sx + 10, info_rect.y + 148, f_med, WHITE)
+    info_rect = pygame.Rect(sx, 260, pw, 196)
+    draw_panel(screen, info_rect, "INFO", f_small)
+    draw_text(screen, "SCORE", sx + 10, info_rect.y + 30, f_small, DIM)
+    draw_text(screen, str(game.score), sx + 10, info_rect.y + 48, f_big, WHITE)
+    draw_text(screen, "BEST", sx + 10, info_rect.y + 86, f_small, DIM)
+    draw_text(screen, str(game.highscore), sx + 10, info_rect.y + 102, f_med, (250, 200, 0))
+    draw_text(screen, "LEVEL", sx + 112, info_rect.y + 30, f_small, DIM)
+    draw_text(screen, str(game.level), sx + 112, info_rect.y + 48, f_big, WHITE)
+    draw_text(screen, "LINES", sx + 112, info_rect.y + 86, f_small, DIM)
+    draw_text(screen, str(game.lines), sx + 112, info_rect.y + 102, f_med, WHITE)
 
-    help_rect = pygame.Rect(sx, 358, pw, HEIGHT - 370)
-    draw_panel(screen, help_rect, "CONTROLS", f_small, f_small)
+    help_rect = pygame.Rect(sx, 470, pw, HEIGHT - 482)
+    draw_panel(screen, help_rect, "CONTROLS", f_small)
     for i, line in enumerate(
         ["<  >  move", "v     soft drop", "^ / X rotate",
-         "Z     rotate ccw", "space hard drop", "P     pause", "Q     quit"]
+         "Z     rotate ccw", "space hard drop", "C     hold",
+         "M     mute", "P     pause", "Q     quit"]
     ):
-        draw_text(screen, line, sx + 10, help_rect.y + 34 + i * 18, f_small, DIM)
+        draw_text(screen, line, sx + 10, help_rect.y + 30 + i * 16, f_small, DIM)
 
     if game.paused and not game.over:
         overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
@@ -348,6 +534,11 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
 def main() -> None:
     random.seed()
     pygame.init()
+    try:
+        pygame.mixer.pre_init(22050, -16, 1, 512)
+    except pygame.error:
+        pass
+    sounds = Sounds.build()
     pygame.key.set_repeat(170, 60)
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("Tetris")
@@ -372,23 +563,44 @@ def main() -> None:
                 elif game.over:
                     if event.key in (pygame.K_r, pygame.K_RETURN):
                         game.reset()
+                elif event.key == pygame.K_m:
+                    sounds.enabled = not sounds.enabled
                 elif event.key == pygame.K_p:
                     game.paused = not game.paused
                 elif not game.paused:
                     if event.key == pygame.K_LEFT:
-                        game.move(-1, 0)
+                        if game.move(-1, 0):
+                            sounds.play("move")
                     elif event.key == pygame.K_RIGHT:
-                        game.move(1, 0)
+                        if game.move(1, 0):
+                            sounds.play("move")
                     elif event.key == pygame.K_DOWN:
+                        before = game.piece.y if game.piece else -1
                         game.soft_drop()
+                        if game.piece is not None and game.piece.y != before:
+                            sounds.play("drop")
                     elif event.key in (pygame.K_UP, pygame.K_x):
-                        game.rotate(1)
+                        if game.rotate(1):
+                            sounds.play("rotate")
                     elif event.key == pygame.K_z:
-                        game.rotate(-1)
+                        if game.rotate(-1):
+                            sounds.play("rotate")
                     elif event.key == pygame.K_SPACE:
+                        if game.piece is not None:
+                            sounds.play("hard")
                         game.hard_drop()
+                    elif event.key == pygame.K_c:
+                        piece0 = game.piece
+                        game.hold()
+                        if game.piece is not piece0:
+                            sounds.play("rotate")
 
+        before = game.over
         game.update(dt)
+        if game.over and not before:
+            sounds.play("over")
+            save_highscore(game.highscore)
+
         draw(screen, game, fonts)
         pygame.display.flip()
 

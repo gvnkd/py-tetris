@@ -11,11 +11,11 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 
 ## M1 — Core gameplay feel
 
-- [ ] Hold piece (bind to `C`, one held piece per game, no hold right after spawn)
-- [ ] Lock delay (~500ms) with reset-on-move/rotate, capped resets (prevents infinite stalling)
-- [ ] SRS wall kicks: standard 5-kick table per piece/rotation state (replaces ad-hoc `KICKS`)
-- [ ] High score persistence: `~/.config/py-tetris/highscore`, shown in sidebar
-- [ ] Sound effects: move / rotate / soft drop / hard drop / line clear / game over (`pygame.mixer`), optional BGM
+- [x] Hold piece: `C`, one hold per piece, re-allowed after downward movement; HOLD panel in sidebar (dimmed while locked out)
+- [x] Lock delay: 500ms while grounded, reset by move/rotate, capped at 15 resets (no infinite spin)
+- [x] SRS wall kicks: full JLSTZ + I tables keyed by (from, to) rotation state, O never kicks
+- [x] High score persistence: `~/.config/py-tetris/highscore` (XDG_CONFIG_HOME honored), BEST row in sidebar
+- [x] Sound effects: procedural sine tones for move / rotate / soft+hard drop / line clear / tetris / game over; `M` mutes; BGM deliberately omitted (see M4)
 
 ## M2 — Engineering
 
@@ -23,7 +23,7 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [x] Flake `checks` output: `checks.default` (pytest) and `checks.mypy` (`mypy --strict`), both green via `nix flake check`
 - [x] CI: GitHub Actions (`.github/workflows/ci.yml`) — `nix build .#` + `nix flake check` on push/PR (active once the repo is pushed to GitHub)
 - [x] Full type hints on `tetris.py`, mypy `--strict` clean
-- [ ] SRS-kick and lock-delay test cases — deferred to M1 (they test features that don't exist yet)
+- [x] SRS-kick and lock-delay test cases (landed with M1)
 
 ## M3 — Nix polish
 

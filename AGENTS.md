@@ -15,7 +15,7 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 - Build: `nix build .#`
 - Tests + mypy: `nix flake check .#` (hermetic, runs `checks.default` pytest and `checks.mypy`)
 - Tests in dev shell: `python3 -m pytest tests -v`
-- Controls: arrows move, Down soft drop, Up/X and Z rotate, Space hard drop, P pause, R restart (after game over), Q quit
+- Controls: arrows move, Down soft drop, Up/X and Z rotate, Space hard drop, C hold, M mute, P pause, R restart (after game over), Q quit
 
 ## Nix findings (hard-won — do not rediscover)
 
@@ -32,7 +32,7 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 
 ## Testing / verification
 
-- `tests/test_tetris.py` — 35 headless pytest cases: bag fairness, rotation math + wall kicks (incl. a fuzz over positions), movement bounds, soft/hard drop scoring, line clears, score table, level-ups, gravity/pause, game over, full-game simulation, one headless rendered frame (SDL dummy driver).
+- `tests/test_tetris.py` — 57 headless pytest cases: bag fairness, SRS kick tables (spec values + inverse-consistency) and rotation math (incl. a fuzz over positions), movement bounds, lock delay (expiry, resets, 15-reset cap), soft/hard drop scoring, line clears, score table, level-ups, hold semantics, highscore load/save (tmp_path + XDG_CONFIG_HOME monkeypatch), gravity/pause, game over, full-game simulations (hard-drop and pure-gravity), procedural-sound determinism, one headless rendered frame (SDL dummy driver).
 - Run hermetically: `nix flake check .#` (flake `checks`: `default` = pytest, `mypy` = `mypy --strict tetris.py`). CI (`.github/workflows/ci.yml`) runs `nix build .#` + `nix flake check` on push/PR.
 - `tetris.py` is fully type-hinted and mypy `--strict` clean.
 - Headless run check:
@@ -42,13 +42,20 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 
 ## Git
 
-- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones.
+- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones, `94344dc` M2 (tests, type hints, flake checks, CI).
 - `.envrc` (`use flake`) committed; `.direnv/`, `__pycache__/`, `result`, `*.swp` gitignored.
-- M2 work (tests, type hints, flake checks, CI) was in progress when this was last updated.
+- M1 work (hold, lock delay, SRS, highscore, sounds) was staged, not yet committed, when this was last updated.
+
+## Gameplay notes (M1)
+
+- Rotation uses full SRS: `JLSTZ_KICKS` / `I_KICKS` tables keyed by (from_state, to_state); `Piece.state` tracks 0/1/2/3. Kicks are in board coordinates (+dy = down); the O piece never kicks.
+- Lock delay: grounded pieces get `LOCK_DELAY` (0.5s), resettable by move/rotate up to `MAX_LOCK_RESETS` (15) per grounded spell; `Game.lock()` returns the number of lines cleared.
+- Hold: one per piece (`can_hold`), re-allowed after any downward move or soft drop; the swap path must not touch `next_kind`.
+- High score: `~/.config/py-tetris/highscore` (XDG_CONFIG_HOME honored, for tests); loaded in `Game.__init__`, saved when the game ends.
+- Sounds: procedural sine tones (`_tone` → 16-bit mono PCM buffers), built in `Sounds.build()` after mixer init; all optional — the game runs fine with no audio device. `M` toggles.
 
 ## Known limitations (see `.opencode/milestones.md`)
 
-- No lock delay: pieces lock the moment gravity can't advance them.
-- Ad-hoc wall-kick table instead of SRS.
-- No hold piece, no high-score persistence, no sounds.
 - `pygame.key.set_repeat` for held keys instead of tuned DAS/ARR.
+- No background music (SFX only).
+- No T-spin detection, back-to-back/combo bonuses (M4).

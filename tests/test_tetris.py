@@ -12,12 +12,17 @@ from tetris import (
     BOX,
     COLS,
     COLORS,
+    I_KICKS,
+    JLSTZ_KICKS,
+    LOCK_DELAY,
+    MAX_LOCK_RESETS,
     ROWS,
     SHAPES,
     SCORE_TABLE,
     Game,
     Piece,
     rotate_cells,
+    save_highscore,
 )
 
 
@@ -126,19 +131,34 @@ def test_move_succeeds_inside_board():
 def test_kick_when_rotating_at_floor():
     g = make_game("T")
     g.piece.y = ROWS - 2
-    g.rotate(1)
-    # base rotation reaches row ROWS; kick (0, -1) pulls it up one
+    assert g.rotate(1)
+    # base rotation reaches row ROWS; SRS kick (0, 2) pulls it up one
+    assert g.piece.state == 1
     assert g.piece.y == ROWS - 3
     assert g.piece.cells == frozenset({(2, 1), (1, 0), (1, 1), (1, 2)})
+
+
+def test_i_floor_rotation_uses_srs_kick():
+    g = make_game("I")
+    g.piece.x = 3
+    g.piece.y = ROWS - 2  # horizontal I on the bottom row
+    assert g.rotate(1)
+    # vertical I sticks out of the floor; SRS I kick (1, -2) lifts and shifts it
+    assert g.piece.state == 1
+    assert g.piece.x == 4
+    assert g.piece.y == ROWS - 4
+    assert not g.collides(g.piece.cells, g.piece.x, g.piece.y)
 
 
 def test_kick_when_rotating_at_left_wall():
     g = make_game("I")
     g.piece.cells = rotate_cells(g.piece.cells, -1, BOX["I"])  # vertical I, box col 1
+    g.piece.state = 3
     g.piece.x = -1  # vertical column sits on board col 0
     assert not g.collides(g.piece.cells, g.piece.x, g.piece.y)
-    g.rotate(1)
-    # horizontal I would span board cols -1..2; kick (1, 0) slides it in
+    assert g.rotate(1)
+    # horizontal I would span board cols -1..2; SRS I kick (1, 0) slides it in
+    assert g.piece.state == 0
     assert g.piece.x == 0
     assert not g.collides(g.piece.cells, g.piece.x, g.piece.y)
 
@@ -147,9 +167,45 @@ def test_impossible_rotation_leaves_piece_unchanged():
     g = make_game("I")
     g.piece.x = 0
     g.piece.y = ROWS - 2  # horizontal I on the bottom row
-    cells0, x0, y0 = g.piece.cells, g.piece.x, g.piece.y
-    g.rotate(1)  # vertical I would stick out of the floor; no kick fixes it
-    assert (g.piece.cells, g.piece.x, g.piece.y) == (cells0, x0, y0)
+    for x in range(COLS):
+        g.board[ROWS - 3][x] = (5, 5, 5)
+    cells0, x0, y0, state0 = g.piece.cells, g.piece.x, g.piece.y, g.piece.state
+    assert g.rotate(1) is False  # all five SRS kicks collide
+    assert (g.piece.cells, g.piece.x, g.piece.y, g.piece.state) == (cells0, x0, y0, state0)
+
+
+def test_srs_kick_tables_match_spec():
+    # canonical SRS values in board coordinates (+dy = down)
+    assert JLSTZ_KICKS[(0, 1)] == ((0, 0), (-1, 0), (-1, -1), (0, 2), (-1, 2))
+    assert JLSTZ_KICKS[(3, 0)] == ((0, 0), (-1, 0), (-1, 1), (0, -2), (-1, -2))
+    assert I_KICKS[(0, 1)] == ((0, 0), (-2, 0), (1, 0), (-2, 1), (1, -2))
+    assert I_KICKS[(1, 0)] == ((0, 0), (2, 0), (-1, 0), (2, -1), (-1, 2))
+
+
+def test_srs_tables_are_inverse_consistent():
+    for table in (JLSTZ_KICKS, I_KICKS):
+        for (a, b), kicks in table.items():
+            assert kicks[0] == (0, 0)
+            back = table[(b, a)]
+            assert back[0] == (0, 0)
+            assert set(kicks[1:]) == {(-dx, -dy) for (dx, dy) in back[1:]}
+
+
+def test_o_rotation_never_kicks():
+    g = make_game("O")
+    cells0 = g.piece.cells
+    assert g.rotate(1)
+    assert g.piece.cells == cells0
+    assert g.piece.state == 0
+
+
+def test_rotation_state_tracks_srs():
+    g = make_game("T")
+    states = [g.piece.state]
+    for _ in range(4):
+        assert g.rotate(1)
+        states.append(g.piece.state)
+    assert states == [0, 1, 2, 3, 0]
 
 
 def test_rotation_never_leaves_board():
@@ -218,6 +274,162 @@ def test_spawn_uses_announced_next_piece():
     announced = g.next_kind
     g.hard_drop()
     assert g.piece.kind == announced
+
+
+# --- lock delay --------------------------------------------------------------
+
+
+def test_grounding_does_not_instantly_lock():
+    g = make_game("O")
+    g.piece.y = ROWS - 2
+    g.update(400)  # less than LOCK_DELAY
+    assert g.piece is not None
+    assert g.piece.y == ROWS - 2
+    assert sum(c == COLORS["O"] for row in g.board for c in row) == 0
+
+
+def test_lock_delay_expires():
+    g = make_game("O")
+    g.piece.y = ROWS - 2
+    g.update(int(LOCK_DELAY * 1000) + 1)
+    assert sum(c == COLORS["O"] for row in g.board for c in row) == 4
+
+
+def test_lock_delay_resets_on_move():
+    g = make_game("O")
+    g.piece.y = ROWS - 2
+    g.update(300)
+    assert g.lock_timer == pytest.approx(0.3)
+    assert g.move(1, 0)
+    assert g.lock_timer == 0
+    g.update(400)  # 0.4 < LOCK_DELAY after the reset
+    assert sum(c == COLORS["O"] for row in g.board for c in row) == 0
+
+
+def test_lock_delay_resets_on_rotate():
+    g = make_game("T")
+    g.piece.y = ROWS - 2
+    g.update(300)
+    assert g.rotate(1)
+    assert g.lock_timer == 0
+
+
+def test_lock_resets_are_capped():
+    g = make_game("O")
+    g.piece.y = ROWS - 2
+    for i in range(MAX_LOCK_RESETS + 5):
+        if i % 2 == 0:
+            g.move(1, 0)
+        else:
+            g.rotate(1)
+        g.update(300)
+        if g.piece is None or g.piece.y != ROWS - 2:
+            break  # piece locked: resets ran out
+    assert g.lock_resets <= MAX_LOCK_RESETS
+    assert sum(c == COLORS["O"] for row in g.board for c in row) == 4
+
+
+def test_lock_returns_cleared_lines():
+    g = make_game("I")
+    g.piece.x = 3
+    g.piece.y = ROWS - 2
+    for x in range(COLS):
+        if not (3 <= x <= 6):
+            g.board[ROWS - 1][x] = (5, 5, 5)
+    assert g.lock() == 1
+    assert g.lines == 1
+
+
+# --- hold ----------------------------------------------------------------------
+
+
+def test_hold_stores_and_swaps():
+    g = make_game("T")
+    g.held_kind = "S"
+    g.hold()
+    assert g.held_kind == "T"
+    assert g.piece.kind == "S"
+    assert not g.can_hold
+
+
+def test_hold_first_time_spawns_next():
+    g = Game()
+    kind0 = g.piece.kind
+    next0 = g.next_kind
+    g.hold()
+    assert g.held_kind == kind0
+    assert g.piece.kind == next0
+    assert not g.can_hold
+
+
+def test_cannot_hold_twice():
+    g = make_game("T")
+    g.held_kind = "S"
+    g.hold()
+    piece0 = g.piece
+    g.hold()
+    assert g.piece is piece0
+    assert g.held_kind == "T"
+
+
+def test_hold_reallowed_after_soft_drop():
+    g = make_game("T")
+    g.held_kind = "S"
+    g.move(0, 1)
+    assert g.can_hold
+    g.hold()
+    assert g.piece.kind == "S"
+
+
+# --- high score ------------------------------------------------------------------
+
+
+def test_highscore_loaded_and_saved(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    hs = tmp_path / "py-tetris" / "highscore"
+    hs.parent.mkdir()
+    hs.write_text("1234\n")
+    assert Game().highscore == 1234
+    save_highscore(2000)
+    assert hs.read_text().strip() == "2000"
+    assert Game().highscore == 2000
+
+
+def test_highscore_survives_bad_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    hs = tmp_path / "py-tetris" / "highscore"
+    hs.parent.mkdir()
+    hs.write_text("garbage")
+    assert Game().highscore == 0
+
+
+def test_highscore_tracks_best_score():
+    g = Game(highscore=100)
+    g.score = 50
+    g.lock()
+    assert g.highscore == 100
+    g.score = 200
+    g.lock()
+    assert g.highscore == 200
+
+
+# --- sounds (headless) --------------------------------------------------------------
+
+
+def test_tone_renders_valid_pcm():
+    data = tetris._tone(440.0, 100, 0.5)
+    assert len(data) == 2 * (22050 * 100 // 1000)
+    assert tetris._tone(440.0, 100, 0.5) == data  # deterministic
+
+
+def test_sounds_build_without_mixer():
+    s = tetris.Sounds.build()  # headless: no mixer -> no sounds, no crash
+    s.play("move")
+
+
+def test_sounds_disabled_plays_nothing():
+    s = tetris.Sounds(enabled=False)
+    s.play("move")
 
 
 # --- line clears, scoring, levels ---------------------------------------------
@@ -333,6 +545,17 @@ def test_full_game_reaches_game_over():
         steps += 1
     assert g.over
     assert steps < 10000
+
+
+def test_full_game_with_gravity_and_lock_delay():
+    random.seed(3)
+    g = Game()
+    frames = 0
+    while not g.over and frames < 200:
+        g.update(5000)  # five seconds of game time per frame
+        frames += 1
+    assert g.over
+    assert frames < 200
 
 
 def test_reset_clears_everything():
