@@ -22,7 +22,9 @@ from tetris import (
     Bot,
     Game,
     Piece,
+    THEME_A,
     evaluate_placement,
+    note_freq,
     rotate_cells,
     save_highscore,
 )
@@ -439,6 +441,61 @@ def test_sounds_build_without_mixer():
 def test_sounds_disabled_plays_nothing():
     s = tetris.Sounds(enabled=False)
     s.play("move")
+
+
+def test_note_freq_reference_values():
+    assert note_freq("A4") == pytest.approx(440.0)
+    assert note_freq("E5") == pytest.approx(659.255, rel=1e-3)
+    assert note_freq("C5") == pytest.approx(523.251, rel=1e-3)
+    assert note_freq("G4") == pytest.approx(392.0, rel=1e-3)
+    assert note_freq("B4") == pytest.approx(493.883, rel=1e-3)
+    # an octave up doubles the frequency
+    assert note_freq("E4") == pytest.approx(note_freq("E5") / 2)
+
+
+def test_render_melody_rest_is_silence():
+    data = tetris.render_melody((("R", 1), ("E5", 1)), 0.1, rate=8000)
+    assert len(data) == 2 * 2 * 800  # two beats, 16-bit
+    first_beat = data[:1600]
+    assert first_beat == b"\x00" * 1600
+    second_beat = data[1600:]
+    peak = max(
+        abs(int.from_bytes(second_beat[i : i + 2], "little", signed=True))
+        for i in range(0, len(second_beat), 2)
+    )
+    assert peak > 0
+
+
+def test_theme_a_is_well_formed():
+    # 4/4 score transcription: 45 whole bars + a 0.5-beat breath
+    sections = [
+        tetris._MAIN, tetris._DEV, tetris._RETURN, tetris._BRIDGE,
+        tetris._CLIMAX2, tetris._RUNS, tetris._CODA,
+    ]
+    for s in sections:
+        assert sum(b for _, b in s) % 4 == 0
+    assert sum(beats for _, beats in tetris._MAIN) == 32  # 8-bar motif
+    assert sum(beats for _, beats in THEME_A) == 180.5
+    assert any(name == "R" for name, _ in THEME_A)
+    assert any(beats == 0.5 for _, beats in THEME_A)  # eighths
+    assert any(beats == 1 for _, beats in THEME_A)  # quarters
+    assert any(beats == 2 for _, beats in THEME_A)  # halves
+    assert any(beats == 4 for _, beats in THEME_A)  # whole notes
+    for name, _ in THEME_A:
+        if name != "R":
+            note_freq(name)  # must not raise
+    assert THEME_A[0][0] == "E5"  # opens on the accented high E
+    assert THEME_A[-1][0] == "A5"  # ends on the final held A
+
+
+def test_music_start_play_stop_without_mixer():
+    m = tetris.Music()
+    m.start()
+    m.play()
+    m.stop()
+    m.start()  # idempotent
+    m.play()
+    m.stop()
 
 
 # --- line clears, scoring, levels ---------------------------------------------

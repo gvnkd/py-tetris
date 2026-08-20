@@ -15,7 +15,7 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 - Build: `nix build .#`
 - Tests + mypy: `nix flake check .#` (hermetic, runs `checks.default` pytest and `checks.mypy`)
 - Tests in dev shell: `python3 -m pytest tests -v`
-- Controls: arrows move, Down soft drop, Up/X and Z rotate, Space hard drop, C hold, M mute, P pause, R restart (after game over), Q quit
+- Controls: arrows move, Down soft drop, Up/X and Z rotate, Space hard drop, C hold, M mute (SFX + music), P pause, R restart (after game over), Q quit
 - The game starts in **demo mode** (an autoplay bot plays). Click the **NEW GAME** button in the sidebar (or press R/Enter) to take over; the button also restarts in human mode. Demo auto-restarts ~2s after its own game over.
 
 ## Nix findings (hard-won — do not rediscover)
@@ -33,7 +33,7 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 
 ## Testing / verification
 
-- `tests/test_tetris.py` — 64 headless pytest cases: bag fairness, SRS kick tables (spec values + inverse-consistency) and rotation math (incl. a fuzz over positions), movement bounds, lock delay (expiry, resets, 15-reset cap), soft/hard drop scoring, line clears, score table, level-ups, hold semantics, highscore load/save (tmp_path + XDG_CONFIG_HOME monkeypatch), gravity/pause, game over, full-game simulations (hard-drop, pure-gravity, bot-played), placement evaluator (clears/holes/height/topmost-cell regression), procedural-sound determinism, headless rendered frames (SDL dummy driver, incl. demo mode).
+- `tests/test_tetris.py` — 68 headless pytest cases: bag fairness, SRS kick tables (spec values + inverse-consistency) and rotation math (incl. a fuzz over positions), movement bounds, lock delay (expiry, resets, 15-reset cap), soft/hard drop scoring, line clears, score table, level-ups, hold semantics, highscore load/save (tmp_path + XDG_CONFIG_HOME monkeypatch), gravity/pause, game over, full-game simulations (hard-drop, pure-gravity, bot-played), placement evaluator (clears/holes/height/topmost-cell regression), procedural-sound determinism, music (note frequencies, rest silence, theme well-formedness, mixer-less no-op), headless rendered frames (SDL dummy driver, incl. demo mode).
 - Run hermetically: `nix flake check .#` (flake `checks`: `default` = pytest, `mypy` = `mypy --strict tetris.py`). CI (`.github/workflows/ci.yml`) runs `nix build .#` + `nix flake check` on push/PR.
 - `tetris.py` is fully type-hinted and mypy `--strict` clean.
 - Headless run check:
@@ -43,7 +43,7 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 
 ## Git
 
-- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones, `94344dc` M2 (tests, type hints, flake checks, CI), `a38361b` M1 (hold, lock delay, SRS, highscore, sounds).
+- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones, `94344dc` M2 (tests, type hints, flake checks, CI), `a38361b` M1 (hold, lock delay, SRS, highscore, sounds), `354e0e8` demo bot + NEW GAME button.
 - `.envrc` (`use flake`) committed; `.direnv/`, `__pycache__/`, `result`, `*.swp` gitignored.
 
 ## Gameplay notes (M1)
@@ -52,12 +52,14 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 - Lock delay: grounded pieces get `LOCK_DELAY` (0.5s), resettable by move/rotate up to `MAX_LOCK_RESETS` (15) per grounded spell; `Game.lock()` returns the number of lines cleared.
 - Hold: one per piece (`can_hold`), re-allowed after any downward move or soft drop; the swap path must not touch `next_kind`.
 - High score: `~/.config/py-tetris/highscore` (XDG_CONFIG_HOME honored, for tests); loaded in `Game.__init__`, saved when the game ends.
-- Sounds: procedural sine tones (`_tone` → 16-bit mono PCM buffers), built in `Sounds.build()` after mixer init; all optional — the game runs fine with no audio device. `M` toggles. Line clears play `clear` (1–3) / `tetris` (4) via `Game.last_cleared`, consumed once per frame in `main()`.
+- Sounds: procedural sine tones (`_tone` → 16-bit mono PCM buffers), built in `Sounds.build()` after mixer init; all optional — the game runs fine with no audio device. `M` toggles SFX + music. Line clears play `clear` (1–3) / `tetris` (4) via `Game.last_cleared`, consumed once per frame in `main()`.
+- Music: "The Peddlers" (Korobeiniki, the classic Tetris theme — public-domain folk melody, E minor, 4/4) — full 45-bar transcription of the score `korobeiniki_score_p1/p2.png` ("Piano Tiles Version", Zakura): `_MAIN` (bars 1–8 motif) + `_DEV` (development, chromatic runs, E6 fermata climax, 2/4 ff bar) + `_RETURN` (ff motif in eighths) + `_BRIDGE` + `_CLIMAX2` (high chromatic peak) + `_RUNS` + `_CODA` (final held A5). Every bar sums to 4 beats; rendered as a ~57s looping square wave at ♩≈190 (score says 170, played a bit faster). `note_freq` + `render_melody` (PCM buffer, envelope per note; renders in ~0.3s) + `Music` (persistent `play(-1)` channel). `mixer.pre_init(22050, -16, 1, 512)` must precede `pygame.init()` so the buffer renders at the mixer rate. Verify rendered pitch/duration by zero-crossing analysis of the PCM (no audio on this machine). The dense chromatic middle bars are a best-effort reading of the score — if a bar sounds off, the user can point it out.
+- **`35149.mid` is NOT this melody** — it contains no E or B notes at all (different chromatic arrangement). The score PNGs are the reference; don't re-derive the music from the MIDI.
 - Demo bot: `Bot.step()` thinks every `BOT_THINK_INTERVAL` (0.3s); scores every legal (rotation, x) placement of the current piece with `evaluate_placement` (clears ×1000, −holes ×30, −Σheights ×2, −bumpiness) restricted to rest positions reachable from the current height, then executes via rotate/move/hard_drop with hard-drop fallback on any failed step. `Game.mode` is `"demo"`/`"human"`; NEW GAME button rect is `NEW_GAME_RECT`.
 
 ## Known limitations (see `.opencode/milestones.md`)
 
 - Demo bot is depth-1 greedy (no lookahead/hold usage); it plays ~100+ line games.
 - `pygame.key.set_repeat` for held keys instead of tuned DAS/ARR.
-- No background music (SFX only).
+- Music is a single square-wave lead (no bass/chords, unlike the full piano arrangement); fixed tempo ♩≈190 (score: 170 + accelerando, flattened); the 2/4 climax bar is normalized to 4/4.
 - No T-spin detection, back-to-back/combo bonuses (M4).
