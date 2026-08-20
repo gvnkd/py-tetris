@@ -7,27 +7,34 @@ import random
 
 import pytest
 
-import tetris
-from tetris import (
-    BOX,
+from py_tetris.audio import (
+    THEME_A,
+    Music,
+    Sounds,
+    _BRIDGE,
+    _CLIMAX2,
+    _CODA,
+    _DEV,
+    _MAIN,
+    _RETURN,
+    _RUNS,
+    _tone,
+    note_freq,
+    render_melody,
+)
+from py_tetris.constants import (
     COLS,
-    COLORS,
-    I_KICKS,
-    JLSTZ_KICKS,
+    HEIGHT,
     LOCK_DELAY,
     MAX_LOCK_RESETS,
     ROWS,
-    SHAPES,
     SCORE_TABLE,
-    Bot,
-    Game,
-    Piece,
-    THEME_A,
-    evaluate_placement,
-    note_freq,
-    rotate_cells,
-    save_highscore,
+    WIDTH,
 )
+from py_tetris.game import Bot, Game, evaluate_placement
+from py_tetris.highscore import save_highscore
+from py_tetris.pieces import BOX, COLORS, I_KICKS, JLSTZ_KICKS, Piece, SHAPES, rotate_cells
+from py_tetris.render import draw
 
 
 def make_game(piece_kind: str = "O") -> Game:
@@ -428,18 +435,18 @@ def test_highscore_tracks_best_score():
 
 
 def test_tone_renders_valid_pcm():
-    data = tetris._tone(440.0, 100, 0.5)
+    data = _tone(440.0, 100, 0.5)
     assert len(data) == 2 * (22050 * 100 // 1000)
-    assert tetris._tone(440.0, 100, 0.5) == data  # deterministic
+    assert _tone(440.0, 100, 0.5) == data  # deterministic
 
 
 def test_sounds_build_without_mixer():
-    s = tetris.Sounds.build()  # headless: no mixer -> no sounds, no crash
+    s = Sounds.build()  # headless: no mixer -> no sounds, no crash
     s.play("move")
 
 
 def test_sounds_disabled_plays_nothing():
-    s = tetris.Sounds(enabled=False)
+    s = Sounds(enabled=False)
     s.play("move")
 
 
@@ -454,7 +461,7 @@ def test_note_freq_reference_values():
 
 
 def test_render_melody_rest_is_silence():
-    data = tetris.render_melody((("R", 1), ("E5", 1)), 0.1, rate=8000)
+    data = render_melody((("R", 1), ("E5", 1)), 0.1, rate=8000)
     assert len(data) == 2 * 2 * 800  # two beats, 16-bit
     first_beat = data[:1600]
     assert first_beat == b"\x00" * 1600
@@ -469,12 +476,12 @@ def test_render_melody_rest_is_silence():
 def test_theme_a_is_well_formed():
     # 4/4 score transcription: 45 whole bars + a 0.5-beat breath
     sections = [
-        tetris._MAIN, tetris._DEV, tetris._RETURN, tetris._BRIDGE,
-        tetris._CLIMAX2, tetris._RUNS, tetris._CODA,
+        _MAIN, _DEV, _RETURN, _BRIDGE,
+        _CLIMAX2, _RUNS, _CODA,
     ]
     for s in sections:
         assert sum(b for _, b in s) % 4 == 0
-    assert sum(beats for _, beats in tetris._MAIN) == 32  # 8-bar motif
+    assert sum(beats for _, beats in _MAIN) == 32  # 8-bar motif
     assert sum(beats for _, beats in THEME_A) == 180.5
     assert any(name == "R" for name, _ in THEME_A)
     assert any(beats == 0.5 for _, beats in THEME_A)  # eighths
@@ -489,7 +496,7 @@ def test_theme_a_is_well_formed():
 
 
 def test_music_start_play_stop_without_mixer():
-    m = tetris.Music()
+    m = Music()
     m.start()
     m.play()
     m.stop()
@@ -714,7 +721,7 @@ def test_render_frames_headless():
 
     pygame.init()
     try:
-        screen = pygame.display.set_mode((tetris.WIDTH, tetris.HEIGHT))
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
         fonts = {
             "tiny": pygame.font.Font(None, 16),
             "small": pygame.font.Font(None, 20),
@@ -723,13 +730,13 @@ def test_render_frames_headless():
             "huge": pygame.font.Font(None, 64),
         }
         g = Game(mode="demo")
-        tetris.draw(screen, g, fonts)
+        draw(screen, g, fonts)
         g.mode = "human"
-        tetris.draw(screen, g, fonts)
+        draw(screen, g, fonts)
         g.paused = True
-        tetris.draw(screen, g, fonts)
+        draw(screen, g, fonts)
         g.over = True
-        tetris.draw(screen, g, fonts)
+        draw(screen, g, fonts)
         pygame.display.flip()
     finally:
         pygame.quit()

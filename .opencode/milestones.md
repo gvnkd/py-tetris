@@ -31,6 +31,12 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [ ] Evaluate pinning nixpkgs to `stable` instead of `unstable` (fewer surprise rebuilds)
 - [ ] Document the dead local-cache workaround (`--option substituters`) for other devs
 
+## M5 — Refactor (done)
+
+- [x] Split `tetris.py` into the `py_tetris` package (src layout): `constants`, `pieces`, `audio`, `highscore`, `game` (pure logic), `render`, `app` + `__main__`
+- [x] PEP 621 `pyproject.toml` (setuptools backend, `py-tetris` console script, strict mypy + pytest config) replaces legacy `setup.py`; flake uses `pyproject = true`
+- [x] Dev shell: `python3 -m py_tetris`, mypy available; all 68 tests + mypy green on the new layout
+
 ## M4 — Nice to have
 
 - [x] Autoplay demo bot on startup (greedy placement heuristic, ~100+ line games); click NEW GAME (or R/Enter) to take over; demo auto-restarts after game over

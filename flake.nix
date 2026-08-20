@@ -21,8 +21,11 @@
             pname = "py-tetris";
             version = "1.0.0";
             src = self;
-            format = "setuptools";
+            pyproject = true;
+            build-system = [ pkgs.python3Packages.setuptools ];
             dependencies = [ pkgs.python3Packages.pygame ];
+            # the test suite runs in checks.default, not during the build
+            doInstallCheck = false;
             meta = {
               description = "Tetris game written in Python";
               mainProgram = "py-tetris";
@@ -48,10 +51,13 @@
             pkgs.python3
             pkgs.python3Packages.pygame
             pkgs.python3Packages.pytest
+            pkgs.python3Packages.mypy
           ];
           shellHook = ''
-            echo "Run the game with: python3 tetris.py  (or: nix run .#)"
+            export PYTHONPATH="$(pwd)/src${PYTHONPATH:+:$PYTHONPATH}"
+            echo "Run the game with: python3 -m py_tetris  (or: nix run .#)"
             echo "Run the tests with: python3 -m pytest tests -v"
+            echo "Type-check with:   python3 -m mypy"
           '';
         };
       });
@@ -71,7 +77,7 @@
           installPhase = "mkdir -p $out";
           checkPhase = ''
             runHook preCheck
-            python -m pytest tests -v
+            PYTHONPATH=src python -m pytest tests -v
             runHook postCheck
           '';
         };
@@ -89,7 +95,7 @@
           installPhase = "mkdir -p $out";
           checkPhase = ''
             runHook preCheck
-            python -m mypy --strict tetris.py
+            python -m mypy --strict src/py_tetris
             runHook postCheck
           '';
         };

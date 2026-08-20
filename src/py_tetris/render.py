@@ -1,0 +1,189 @@
+"""All pygame drawing: board, sidebar, previews and overlays."""
+
+import pygame
+
+from py_tetris.constants import (
+    BOARD_H,
+    BOARD_W,
+    BG,
+    BORDER,
+    CELL,
+    COLS,
+    DIM,
+    GHOST,
+    GRID,
+    NEW_GAME_RECT,
+    PANEL,
+    ROWS,
+    SIDEBAR_INNER_W,
+    SIDEBAR_X,
+    WHITE,
+)
+from py_tetris.constants import Color
+from py_tetris.game import Game
+from py_tetris.pieces import COLORS, SHAPES
+
+
+def shade(color: Color, amount: int) -> Color:
+    r, g, b = color
+    return (
+        max(0, min(255, r + amount)),
+        max(0, min(255, g + amount)),
+        max(0, min(255, b + amount)),
+    )
+
+
+def draw_cell(
+    surf: pygame.Surface, x: int, y: int, color: Color, size: int = CELL
+) -> None:
+    rect = pygame.Rect(x * size, y * size, size, size)
+    pygame.draw.rect(surf, color, rect)
+    hi = shade(color, 55)
+    lo = shade(color, -55)
+    pygame.draw.line(surf, hi, (rect.x + 2, rect.y + 2), (rect.right - 3, rect.y + 2))
+    pygame.draw.line(surf, hi, (rect.x + 2, rect.y + 2), (rect.x + 2, rect.bottom - 3))
+    pygame.draw.line(surf, lo, (rect.x + 2, rect.bottom - 3), (rect.right - 3, rect.bottom - 3))
+    pygame.draw.line(surf, lo, (rect.right - 3, rect.y + 2), (rect.right - 3, rect.bottom - 3))
+    pygame.draw.rect(surf, shade(color, -90), rect, 1)
+
+
+def draw_text(
+    surf: pygame.Surface,
+    text: str,
+    x: int,
+    y: int,
+    font: pygame.font.Font,
+    color: Color = WHITE,
+) -> None:
+    surf.blit(font.render(text, True, color), (x, y))
+
+
+def draw_preview(surf: pygame.Surface, kind: str, rect: pygame.Rect, cell: int = 22) -> None:
+    cells = SHAPES[kind]
+    min_x = min(cx for cx, _ in cells)
+    max_x = max(cx for cx, _ in cells)
+    min_y = min(cy for _, cy in cells)
+    max_y = max(cy for _, cy in cells)
+    w = (max_x - min_x + 1) * cell
+    h = (max_y - min_y + 1) * cell
+    ox = rect.x + (rect.w - w) // 2
+    oy = rect.y + 34 + (rect.h - 34 - h) // 2
+    for cx, cy in cells:
+        r = pygame.Rect(ox + (cx - min_x) * cell, oy + (cy - min_y) * cell, cell, cell)
+        pygame.draw.rect(surf, COLORS[kind], r)
+        pygame.draw.rect(surf, shade(COLORS[kind], -70), r, 1)
+
+
+def draw_panel(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    title: str,
+    f_small: pygame.font.Font,
+) -> None:
+    pygame.draw.rect(surf, PANEL, rect, border_radius=6)
+    pygame.draw.rect(surf, BORDER, rect, 1, border_radius=6)
+    draw_text(surf, title, rect.x + 10, rect.y + 8, f_small, DIM)
+
+
+def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font]) -> None:
+    screen.fill(BG)
+    board_rect = pygame.Rect(0, 0, BOARD_W, BOARD_H)
+    pygame.draw.rect(screen, PANEL, board_rect)
+
+    for y in range(ROWS):
+        for x in range(COLS):
+            color = game.board[y][x]
+            if color is not None:
+                draw_cell(screen, x, y, color)
+
+    p = game.piece
+    if p is not None and not game.over:
+        d = game.drop_distance()
+        for cx, cy in p.cells:
+            gx, gy = p.x + cx, p.y + cy + d
+            if gy >= 0:
+                pygame.draw.rect(
+                    screen, GHOST, pygame.Rect(gx * CELL, gy * CELL, CELL, CELL), 2
+                )
+        color = COLORS[p.kind]
+        for cx, cy in p.cells:
+            px, py = p.x + cx, p.y + cy
+            if py >= 0:
+                draw_cell(screen, px, py, color)
+
+    for x in range(COLS + 1):
+        pygame.draw.line(screen, GRID, (x * CELL, 0), (x * CELL, BOARD_H))
+    for y in range(ROWS + 1):
+        pygame.draw.line(screen, GRID, (0, y * CELL), (BOARD_W, y * CELL))
+    pygame.draw.rect(screen, BORDER, board_rect, 2)
+
+    sx = SIDEBAR_X
+    pw = SIDEBAR_INNER_W
+    f_tiny, f_small, f_med, f_big = (
+        fonts["tiny"], fonts["small"], fonts["med"], fonts["big"]
+    )
+
+    hold_rect = pygame.Rect(sx, 10, pw, 104)
+    draw_panel(screen, hold_rect, "HOLD", f_small)
+    if game.held_kind is not None:
+        draw_preview(screen, game.held_kind, hold_rect)
+        if not game.can_hold:
+            dim = pygame.Surface((hold_rect.w, hold_rect.h - 28), pygame.SRCALPHA)
+            dim.fill((0, 0, 0, 130))
+            screen.blit(dim, (hold_rect.x, hold_rect.y + 28))
+
+    next_rect = pygame.Rect(sx, 122, pw, 104)
+    draw_panel(screen, next_rect, "NEXT", f_small)
+    draw_preview(screen, game.next_kind, next_rect)
+
+    info_rect = pygame.Rect(sx, 234, pw, 168)
+    draw_panel(screen, info_rect, "INFO", f_small)
+    draw_text(screen, "SCORE", sx + 10, info_rect.y + 30, f_small, DIM)
+    draw_text(screen, str(game.score), sx + 10, info_rect.y + 48, f_big, WHITE)
+    draw_text(screen, "BEST", sx + 10, info_rect.y + 86, f_small, DIM)
+    draw_text(screen, str(game.highscore), sx + 10, info_rect.y + 102, f_med, (250, 200, 0))
+    draw_text(screen, "LEVEL", sx + 112, info_rect.y + 30, f_small, DIM)
+    draw_text(screen, str(game.level), sx + 112, info_rect.y + 48, f_big, WHITE)
+    draw_text(screen, "LINES", sx + 112, info_rect.y + 86, f_small, DIM)
+    draw_text(screen, str(game.lines), sx + 112, info_rect.y + 102, f_med, WHITE)
+
+    help_rect = pygame.Rect(sx, 410, pw, 128)
+    draw_panel(screen, help_rect, "CONTROLS", f_small)
+    for i, line in enumerate(
+        ["< >  move     v  soft drop",
+         "^/X rotate    Z  rotate ccw",
+         "space  hard drop    C  hold",
+         "P  pause    M  mute",
+         "Q  quit     R  restart"]
+    ):
+        draw_text(screen, line, sx + 10, help_rect.y + 30 + i * 18, f_tiny, DIM)
+
+    hover = NEW_GAME_RECT.collidepoint(pygame.mouse.get_pos())
+    fill = (60, 120, 200) if hover else (36, 62, 108)
+    pygame.draw.rect(screen, fill, NEW_GAME_RECT, border_radius=6)
+    pygame.draw.rect(screen, BORDER, NEW_GAME_RECT, 1, border_radius=6)
+    label = f_med.render("NEW GAME", True, WHITE)
+    screen.blit(
+        label,
+        (
+            NEW_GAME_RECT.x + (NEW_GAME_RECT.w - label.get_width()) // 2,
+            NEW_GAME_RECT.y + (NEW_GAME_RECT.h - label.get_height()) // 2,
+        ),
+    )
+
+    if game.mode == "demo" and not game.over:
+        banner = f_small.render("DEMO - click NEW GAME to play", True, DIM)
+        screen.blit(banner, (BOARD_W // 2 - banner.get_width() // 2, 6))
+
+    if game.paused and not game.over:
+        overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        screen.blit(overlay, board_rect)
+        draw_text(screen, "PAUSED", BOARD_W // 2, BOARD_H // 2 - 40, fonts["huge"], WHITE)
+    if game.over:
+        overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 170))
+        screen.blit(overlay, board_rect)
+        draw_text(screen, "GAME OVER", BOARD_W // 2, BOARD_H // 2 - 70, fonts["huge"], (240, 80, 80))
+        draw_text(screen, f"Score: {game.score}", BOARD_W // 2, BOARD_H // 2 - 10, f_big, WHITE)
+        draw_text(screen, "R - restart   Q - quit", BOARD_W // 2, BOARD_H // 2 + 30, f_med, DIM)

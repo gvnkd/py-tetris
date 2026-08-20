@@ -2,26 +2,35 @@
 
 ## Overview
 
-Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
+Tetris in Python (pygame), packaged and run via a Nix flake. The game lives in the `py_tetris` package (src layout); the original single-file `tetris.py` was split into modules (M5).
 
-- `tetris.py` — the entire game (requirement: keep it one file)
-- `setup.py` — minimal packaging so nix installs a `py-tetris` entry point
-- `flake.nix` / `flake.lock` — nixpkgs pinned to `nixos-unstable`; `packages`, `apps`, `devShells` for 4 systems
+- `src/py_tetris/` — the package:
+  - `constants.py` — board/window/timing constants, colors, `Color` type, `NEW_GAME_RECT`
+  - `pieces.py` — SHAPES, BOX, COLORS, SRS kick tables, `rotate_cells`, `Piece`
+  - `audio.py` — SFX tones, Korobeiniki music table (`THEME_A`), `note_freq`, `render_melody`, `Sounds`, `Music`
+  - `highscore.py` — `~/.config/py-tetris/highscore` load/save (XDG honored)
+  - `game.py` — `Game`, `evaluate_placement`, `Bot` (pure logic, no pygame)
+  - `render.py` — all pygame drawing
+  - `app.py` — `main()` (pygame init, event loop); `__main__.py` enables `python -m py_tetris`
+- `pyproject.toml` — PEP 621 metadata, setuptools backend, `py-tetris = "py_tetris.app:main"` script, `[tool.mypy] strict`, pytest config (replaced legacy `setup.py`)
+- `flake.nix` / `flake.lock` — nixpkgs pinned to `nixos-unstable`; `packages`, `apps`, `devShells`, `checks` for 4 systems
+- `tests/test_tetris.py` — headless pytest suite
 
 ## Commands
 
 - Run game: `nix run .#`
-- Dev shell (live editing): `nix develop .#` then `python3 tetris.py`
+- Dev shell (live editing): `nix develop .#` then `python3 -m py_tetris` (the shellHook sets `PYTHONPATH=src`)
 - Build: `nix build .#`
 - Tests + mypy: `nix flake check .#` (hermetic, runs `checks.default` pytest and `checks.mypy`)
 - Tests in dev shell: `python3 -m pytest tests -v`
+- Type check in dev shell: `python3 -m mypy` (config in pyproject: strict, `src/py_tetris`)
 - Controls: arrows move, Down soft drop, Up/X and Z rotate, Space hard drop, C hold, M mute (SFX + music), P pause, R restart (after game over), Q quit
 - The game starts in **demo mode** (an autoplay bot plays). Click the **NEW GAME** button in the sidebar (or press R/Enter) to take over; the button also restarts in human mode. Demo auto-restarts ~2s after its own game over.
 
 ## Nix findings (hard-won — do not rediscover)
 
 - nix 2.34 flake apps use the new schema: `type = "app"; program = "..."`. The legacy `command` attribute is rejected (`attribute 'apps.<system>.default.program' does not exist`).
-- `buildPythonApplication` requires `format = "setuptools"` (legacy setup.py) or `pyproject = true`, else: "does not configure a `format`".
+- `buildPythonApplication` requires an explicit build format: with a `pyproject.toml` use `pyproject = true` + `build-system = [ pkgs.python3Packages.setuptools ]` (builds a wheel via `python -m build`); legacy `format = "setuptools"` works for setup.py. Without either: "does not configure a `format`". Set `doInstallCheck = false` so the package build doesn't run the test suite (that is `checks.default`'s job).
 - Runtime Python deps go in `dependencies = [ ... ]` (PEP 621 style; mapped to `propagatedBuildInputs` and injected into wrapped scripts via `site.addsitedir`). There is no `pythonImports` attribute in current nixpkgs — it is silently ignored, producing a package that crashes with `ModuleNotFoundError` at runtime.
 - The local binary cache `http://192.168.0.254:5001` (in the user's nix substituters) times out and aborts the whole build. Workaround: `--option substituters "https://cache.nixos.org"`. Builds also run on remote builder `ssh-ng://builder`.
 - `nix shell .#` resolves to `packages.default`, not the devShell. Use `.#devShells.<system>.default` explicitly.
@@ -34,8 +43,8 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 ## Testing / verification
 
 - `tests/test_tetris.py` — 68 headless pytest cases: bag fairness, SRS kick tables (spec values + inverse-consistency) and rotation math (incl. a fuzz over positions), movement bounds, lock delay (expiry, resets, 15-reset cap), soft/hard drop scoring, line clears, score table, level-ups, hold semantics, highscore load/save (tmp_path + XDG_CONFIG_HOME monkeypatch), gravity/pause, game over, full-game simulations (hard-drop, pure-gravity, bot-played), placement evaluator (clears/holes/height/topmost-cell regression), procedural-sound determinism, music (note frequencies, rest silence, theme well-formedness, mixer-less no-op), headless rendered frames (SDL dummy driver, incl. demo mode).
-- Run hermetically: `nix flake check .#` (flake `checks`: `default` = pytest, `mypy` = `mypy --strict tetris.py`). CI (`.github/workflows/ci.yml`) runs `nix build .#` + `nix flake check` on push/PR.
-- `tetris.py` is fully type-hinted and mypy `--strict` clean.
+- Run hermetically: `nix flake check .#` (flake `checks`: `default` = `PYTHONPATH=src python -m pytest`, `mypy` = `mypy --strict src/py_tetris`). CI (`.github/workflows/ci.yml`) runs `nix build .#` + `nix flake check` on push/PR.
+- The whole package is fully type-hinted and mypy `--strict` clean (config in `pyproject.toml`).
 - Headless run check:
   `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy timeout 6 nix run .# --option substituters "https://cache.nixos.org"`
   Expect the `pygame-ce ... (SDL ...)` banner and no traceback; being killed by timeout = success.
@@ -43,7 +52,7 @@ Single-file Tetris in Python (pygame), packaged and run via a Nix flake.
 
 ## Git
 
-- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones, `94344dc` M2 (tests, type hints, flake checks, CI), `a38361b` M1 (hold, lock delay, SRS, highscore, sounds), `354e0e8` demo bot + NEW GAME button.
+- Commits so far: `a0f677c` initial game+flake, `8ffe056` project memory + milestones, `94344dc` M2 (tests, type hints, flake checks, CI), `a38361b` M1 (hold, lock delay, SRS, highscore, sounds), `354e0e8` demo bot + NEW GAME button, `f67094f` full 45-bar Korobeiniki music (score transcription) + ♩=190, `85e5a75` reference files to gitignored `tmp/`.
 - `.envrc` (`use flake`) committed; `.direnv/`, `__pycache__/`, `result`, `*.swp` gitignored.
 
 ## Gameplay notes (M1)
