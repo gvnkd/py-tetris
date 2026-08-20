@@ -19,8 +19,10 @@ from tetris import (
     ROWS,
     SHAPES,
     SCORE_TABLE,
+    Bot,
     Game,
     Piece,
+    evaluate_placement,
     rotate_cells,
     save_highscore,
 )
@@ -338,6 +340,13 @@ def test_lock_returns_cleared_lines():
             g.board[ROWS - 1][x] = (5, 5, 5)
     assert g.lock() == 1
     assert g.lines == 1
+    assert g.last_cleared == 1
+
+
+def test_lock_reports_no_clear():
+    g = make_game("O")
+    g.lock()
+    assert g.last_cleared == 0
 
 
 # --- hold ----------------------------------------------------------------------
@@ -576,6 +585,70 @@ def test_reset_clears_everything():
     assert g.piece is not None
 
 
+# --- placement evaluation & bot -------------------------------------------------------
+
+
+def test_evaluate_prefers_line_clear():
+    board = [[None] * COLS for _ in range(ROWS)]
+    for x in range(COLS):
+        if x not in (2, 3, 4, 5):
+            board[ROWS - 1][x] = (1, 1, 1)
+    i_cells = frozenset(SHAPES["I"])
+    clear = evaluate_placement(board, i_cells, 2, ROWS - 2)
+    noclear = evaluate_placement(board, i_cells, 0, ROWS - 2)
+    assert clear > noclear
+
+
+def test_evaluate_penalizes_holes():
+    board = [[None] * COLS for _ in range(ROWS)]
+    o = frozenset(SHAPES["O"])
+    grounded = evaluate_placement(board, o, 2, ROWS - 2)
+    floating = evaluate_placement(board, o, 2, ROWS - 3)
+    assert grounded > floating
+
+
+def test_evaluate_penalizes_height():
+    board = [[None] * COLS for _ in range(ROWS)]
+    o = frozenset(SHAPES["O"])
+    low = evaluate_placement(board, o, 2, ROWS - 2)
+    high = evaluate_placement(board, o, 2, 0)
+    assert low > high
+
+
+def test_evaluate_height_uses_topmost_cell():
+    # column 0 filled only in the bottom row: height 1 -> -2*1 - 1 (bump) = -3
+    a = [[None] * COLS for _ in range(ROWS)]
+    a[ROWS - 1][0] = (1, 1, 1)
+    assert evaluate_placement(a, frozenset(), 0, 0) == -3
+    # column 0 filled rows 16-19: height must be 4 (topmost), not 1 (bottommost)
+    b = [[None] * COLS for _ in range(ROWS)]
+    for row in range(ROWS - 4, ROWS):
+        b[row][0] = (1, 1, 1)
+    assert evaluate_placement(b, frozenset(), 0, 0) == -12
+
+
+def test_bot_plays_full_game_to_game_over():
+    random.seed(11)
+    g = Game(mode="demo")
+    bot = Bot()
+    steps = 0
+    while not g.over and steps < 5000:
+        bot.step(g, 1000)  # forces a decision every step
+        g.update(1000)
+        steps += 1
+    assert g.over
+    assert steps < 5000
+
+
+def test_bot_ignores_human_games():
+    random.seed(5)
+    g = Game(mode="human")
+    bot = Bot()
+    piece0 = g.piece
+    bot.step(g, 10000)
+    assert g.piece is piece0  # untouched
+
+
 # --- rendering (headless) ----------------------------------------------------------
 
 
@@ -586,12 +659,15 @@ def test_render_frames_headless():
     try:
         screen = pygame.display.set_mode((tetris.WIDTH, tetris.HEIGHT))
         fonts = {
+            "tiny": pygame.font.Font(None, 16),
             "small": pygame.font.Font(None, 20),
             "med": pygame.font.Font(None, 30),
             "big": pygame.font.Font(None, 40),
             "huge": pygame.font.Font(None, 64),
         }
-        g = Game()
+        g = Game(mode="demo")
+        tetris.draw(screen, g, fonts)
+        g.mode = "human"
         tetris.draw(screen, g, fonts)
         g.paused = True
         tetris.draw(screen, g, fonts)

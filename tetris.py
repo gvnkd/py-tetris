@@ -35,6 +35,12 @@ HEIGHT = BOARD_H
 FPS = 60
 LOCK_DELAY = 0.5  # seconds a grounded piece may slide/rotate before locking
 MAX_LOCK_RESETS = 15  # move/rotate resets per grounded spell (stops infinite spin)
+BOT_THINK_INTERVAL = 0.3  # seconds between bot decisions
+DEMO_RESTART_DELAY = 2.0  # seconds the demo shows game over before restarting
+
+SIDEBAR_X = BOARD_W + 15
+SIDEBAR_INNER_W = SIDEBAR_W - 30
+NEW_GAME_RECT = pygame.Rect(SIDEBAR_X, 548, SIDEBAR_INNER_W, 42)
 
 BG: Color = (16, 16, 22)
 PANEL: Color = (24, 24, 34)
@@ -204,16 +210,19 @@ class Game:
     level: int
     over: bool
     paused: bool
+    mode: str  # "demo" (bot plays) or "human"
     next_kind: str
     piece: Piece | None
     drop_timer: float
     lock_timer: float
     lock_resets: int
+    last_cleared: int
     held_kind: str | None
     can_hold: bool
     highscore: int
 
-    def __init__(self, highscore: int | None = None) -> None:
+    def __init__(self, mode: str = "human", highscore: int | None = None) -> None:
+        self.mode = mode
         self.highscore = load_highscore() if highscore is None else highscore
         self.reset()
 
@@ -232,6 +241,7 @@ class Game:
         self.drop_timer = 0.0
         self.lock_timer = 0.0
         self.lock_resets = 0
+        self.last_cleared = 0
         self.spawn()
 
     def _draw_kind(self) -> str:
@@ -361,6 +371,7 @@ class Game:
             if 0 <= x < COLS and 0 <= y < ROWS:
                 self.board[y][x] = color
         cleared = self._clear_lines()
+        self.last_cleared = cleared
         if self.score > self.highscore:
             self.highscore = self.score
         self.spawn()
@@ -394,6 +405,85 @@ class Game:
                 self.drop_timer -= self.drop_delay
                 if not self.move(0, 1):
                     break
+
+
+def evaluate_placement(
+    board: list[list[Color | None]], cells: frozenset[tuple[int, int]], x: int, y: int
+) -> int:
+    """Score a placement (higher is better) after locking and clearing lines."""
+    placed = [row[:] for row in board]
+    for cx, cy in cells:
+        bx, by = x + cx, y + cy
+        if 0 <= bx < COLS and 0 <= by < ROWS:
+            placed[by][bx] = (0, 0, 0)
+    kept = [row for row in placed if any(c is None for c in row)]
+    cleared = ROWS - len(kept)
+    fresh: list[list[Color | None]] = [[None] * COLS for _ in range(cleared)]
+    final = fresh + kept
+    heights = [0] * COLS
+    holes = 0
+    for col in range(COLS):
+        seen = False
+        for row in range(ROWS):
+            if final[row][col] is None:
+                if seen:
+                    holes += 1
+            else:
+                if not seen:
+                    heights[col] = ROWS - row
+                seen = True
+    bumpiness = sum(abs(heights[i] - heights[i + 1]) for i in range(COLS - 1))
+    return cleared * 1000 - holes * 30 - sum(heights) * 2 - bumpiness
+
+
+class Bot:
+    """Plays demo mode: picks the best legal placement, then executes it."""
+
+    def __init__(self) -> None:
+        self.think_timer: float = 0.0
+
+    def step(self, game: Game, dt: float) -> None:
+        if game.mode != "demo" or game.over or game.paused:
+            self.think_timer = 0.0
+            return
+        self.think_timer += dt / 1000.0
+        if self.think_timer < BOT_THINK_INTERVAL:
+            return
+        self.think_timer = 0.0
+        self.play(game)
+
+    def play(self, game: Game) -> None:
+        p = game.piece
+        if p is None or game.over:
+            return
+        best: tuple[int, int, int] | None = None  # (score, rotation, x)
+        for rot in range(4):
+            cells = frozenset(SHAPES[p.kind])
+            for _ in range(rot):
+                cells = rotate_cells(cells, 1, BOX[p.kind])
+            for x in range(-BOX[p.kind] + 1, COLS):
+                if game.collides(cells, x, p.y):
+                    continue
+                y = p.y
+                while not game.collides(cells, x, y + 1):
+                    y += 1
+                s = evaluate_placement(game.board, cells, x, y)
+                if best is None or s > best[0]:
+                    best = (s, rot, x)
+        if best is None:
+            game.hard_drop()
+            return
+        turns = (best[1] - p.state) % 4
+        for _ in range(turns):
+            if not game.rotate(1):
+                game.hard_drop()
+                return
+        dx = best[2] - p.x
+        for _ in range(abs(dx)):
+            if not game.move(1 if dx > 0 else -1, 0):
+                game.hard_drop()
+                return
+        game.hard_drop()
 
 
 def draw_cell(
@@ -480,11 +570,13 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
         pygame.draw.line(screen, GRID, (0, y * CELL), (BOARD_W, y * CELL))
     pygame.draw.rect(screen, BORDER, board_rect, 2)
 
-    sx = BOARD_W + 15
-    pw = SIDEBAR_W - 30
-    f_small, f_med, f_big = fonts["small"], fonts["med"], fonts["big"]
+    sx = SIDEBAR_X
+    pw = SIDEBAR_INNER_W
+    f_tiny, f_small, f_med, f_big = (
+        fonts["tiny"], fonts["small"], fonts["med"], fonts["big"]
+    )
 
-    hold_rect = pygame.Rect(sx, 12, pw, 110)
+    hold_rect = pygame.Rect(sx, 10, pw, 104)
     draw_panel(screen, hold_rect, "HOLD", f_small)
     if game.held_kind is not None:
         draw_preview(screen, game.held_kind, hold_rect)
@@ -493,11 +585,11 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
             dim.fill((0, 0, 0, 130))
             screen.blit(dim, (hold_rect.x, hold_rect.y + 28))
 
-    next_rect = pygame.Rect(sx, 136, pw, 110)
+    next_rect = pygame.Rect(sx, 122, pw, 104)
     draw_panel(screen, next_rect, "NEXT", f_small)
     draw_preview(screen, game.next_kind, next_rect)
 
-    info_rect = pygame.Rect(sx, 260, pw, 196)
+    info_rect = pygame.Rect(sx, 234, pw, 168)
     draw_panel(screen, info_rect, "INFO", f_small)
     draw_text(screen, "SCORE", sx + 10, info_rect.y + 30, f_small, DIM)
     draw_text(screen, str(game.score), sx + 10, info_rect.y + 48, f_big, WHITE)
@@ -508,14 +600,33 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
     draw_text(screen, "LINES", sx + 112, info_rect.y + 86, f_small, DIM)
     draw_text(screen, str(game.lines), sx + 112, info_rect.y + 102, f_med, WHITE)
 
-    help_rect = pygame.Rect(sx, 470, pw, HEIGHT - 482)
+    help_rect = pygame.Rect(sx, 410, pw, 128)
     draw_panel(screen, help_rect, "CONTROLS", f_small)
     for i, line in enumerate(
-        ["<  >  move", "v     soft drop", "^ / X rotate",
-         "Z     rotate ccw", "space hard drop", "C     hold",
-         "M     mute", "P     pause", "Q     quit"]
+        ["< >  move     v  soft drop",
+         "^/X rotate    Z  rotate ccw",
+         "space  hard drop    C  hold",
+         "P  pause    M  mute",
+         "Q  quit     R  restart"]
     ):
-        draw_text(screen, line, sx + 10, help_rect.y + 30 + i * 16, f_small, DIM)
+        draw_text(screen, line, sx + 10, help_rect.y + 30 + i * 18, f_tiny, DIM)
+
+    hover = NEW_GAME_RECT.collidepoint(pygame.mouse.get_pos())
+    fill = (60, 120, 200) if hover else (36, 62, 108)
+    pygame.draw.rect(screen, fill, NEW_GAME_RECT, border_radius=6)
+    pygame.draw.rect(screen, BORDER, NEW_GAME_RECT, 1, border_radius=6)
+    label = f_med.render("NEW GAME", True, WHITE)
+    screen.blit(
+        label,
+        (
+            NEW_GAME_RECT.x + (NEW_GAME_RECT.w - label.get_width()) // 2,
+            NEW_GAME_RECT.y + (NEW_GAME_RECT.h - label.get_height()) // 2,
+        ),
+    )
+
+    if game.mode == "demo" and not game.over:
+        banner = f_small.render("DEMO - click NEW GAME to play", True, DIM)
+        screen.blit(banner, (BOARD_W // 2 - banner.get_width() // 2, 6))
 
     if game.paused and not game.over:
         overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
@@ -544,12 +655,19 @@ def main() -> None:
     pygame.display.set_caption("Tetris")
     clock = pygame.time.Clock()
     fonts: dict[str, pygame.font.Font] = {
+        "tiny": pygame.font.SysFont(None, 16),
         "small": pygame.font.SysFont(None, 20),
         "med": pygame.font.SysFont(None, 30),
         "big": pygame.font.SysFont(None, 40),
         "huge": pygame.font.SysFont(None, 64),
     }
-    game = Game()
+    game = Game(mode="demo")
+    bot = Bot()
+    demo_restart_timer = 0.0
+
+    def start_human_game() -> None:
+        game.mode = "human"
+        game.reset()
 
     running = True
     while running:
@@ -557,49 +675,66 @@ def main() -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if NEW_GAME_RECT.collidepoint(event.pos):
+                    start_human_game()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_q:
                     running = False
-                elif game.over:
-                    if event.key in (pygame.K_r, pygame.K_RETURN):
-                        game.reset()
                 elif event.key == pygame.K_m:
                     sounds.enabled = not sounds.enabled
-                elif event.key == pygame.K_p:
+                elif event.key == pygame.K_p and not game.over:
                     game.paused = not game.paused
-                elif not game.paused:
-                    if event.key == pygame.K_LEFT:
-                        if game.move(-1, 0):
-                            sounds.play("move")
-                    elif event.key == pygame.K_RIGHT:
-                        if game.move(1, 0):
-                            sounds.play("move")
-                    elif event.key == pygame.K_DOWN:
-                        before = game.piece.y if game.piece else -1
-                        game.soft_drop()
-                        if game.piece is not None and game.piece.y != before:
-                            sounds.play("drop")
-                    elif event.key in (pygame.K_UP, pygame.K_x):
-                        if game.rotate(1):
-                            sounds.play("rotate")
-                    elif event.key == pygame.K_z:
-                        if game.rotate(-1):
-                            sounds.play("rotate")
-                    elif event.key == pygame.K_SPACE:
-                        if game.piece is not None:
-                            sounds.play("hard")
-                        game.hard_drop()
-                    elif event.key == pygame.K_c:
-                        piece0 = game.piece
-                        game.hold()
-                        if game.piece is not piece0:
-                            sounds.play("rotate")
+                elif game.mode == "human":
+                    if game.over:
+                        if event.key in (pygame.K_r, pygame.K_RETURN):
+                            game.reset()
+                    elif not game.paused:
+                        if event.key == pygame.K_LEFT:
+                            if game.move(-1, 0):
+                                sounds.play("move")
+                        elif event.key == pygame.K_RIGHT:
+                            if game.move(1, 0):
+                                sounds.play("move")
+                        elif event.key == pygame.K_DOWN:
+                            before = game.piece.y if game.piece else -1
+                            game.soft_drop()
+                            if game.piece is not None and game.piece.y != before:
+                                sounds.play("drop")
+                        elif event.key in (pygame.K_UP, pygame.K_x):
+                            if game.rotate(1):
+                                sounds.play("rotate")
+                        elif event.key == pygame.K_z:
+                            if game.rotate(-1):
+                                sounds.play("rotate")
+                        elif event.key == pygame.K_SPACE:
+                            if game.piece is not None:
+                                sounds.play("hard")
+                            game.hard_drop()
+                        elif event.key == pygame.K_c:
+                            piece0 = game.piece
+                            game.hold()
+                            if game.piece is not piece0:
+                                sounds.play("rotate")
+                elif event.key in (pygame.K_r, pygame.K_RETURN):
+                    start_human_game()
 
+        bot.step(game, dt)
         before = game.over
         game.update(dt)
+        if game.last_cleared > 0:
+            sounds.play("tetris" if game.last_cleared == 4 else "clear")
+            game.last_cleared = 0
         if game.over and not before:
             sounds.play("over")
             save_highscore(game.highscore)
+        if game.over and game.mode == "demo":
+            demo_restart_timer += dt
+            if demo_restart_timer >= DEMO_RESTART_DELAY * 1000:
+                demo_restart_timer = 0.0
+                game.reset()
+        else:
+            demo_restart_timer = 0.0
 
         draw(screen, game, fonts)
         pygame.display.flip()

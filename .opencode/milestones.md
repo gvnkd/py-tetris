@@ -33,7 +33,9 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 
 ## M4 — Nice to have
 
+- [x] Autoplay demo bot on startup (greedy placement heuristic, ~100+ line games); click NEW GAME (or R/Enter) to take over; demo auto-restarts after game over
 - [ ] DAS/ARR: explicit key-hold timing instead of `pygame.key.set_repeat`
 - [ ] T-spin detection + back-to-back / combo scoring
 - [ ] Line-clear flash animation before rows collapse
+- [ ] Smarter bot: lookahead (2–4 pieces), hold usage
 - [ ] Game modes (marathon / sprint / ultra)
