@@ -12,12 +12,12 @@ from py_tetris.audio import (
     Music,
     Sounds,
     _BRIDGE,
-    _CLIMAX2,
-    _CODA,
-    _DEV,
-    _MAIN,
-    _RETURN,
-    _RUNS,
+    _CLIMAX,
+    _P1,
+    _P2,
+    _RUN,
+    _RUN2,
+    _WALKDOWN,
     _tone,
     note_freq,
     render_melody,
@@ -474,25 +474,24 @@ def test_render_melody_rest_is_silence():
 
 
 def test_theme_a_is_well_formed():
-    # 4/4 score transcription: 45 whole bars + a 0.5-beat breath
-    sections = [
-        _MAIN, _DEV, _RETURN, _BRIDGE,
-        _CLIMAX2, _RUNS, _CODA,
-    ]
-    for s in sections:
-        assert sum(b for _, b in s) % 4 == 0
-    assert sum(beats for _, beats in _MAIN) == 32  # 8-bar motif
-    assert sum(beats for _, beats in THEME_A) == 180.5
-    assert any(name == "R" for name, _ in THEME_A)
-    assert any(beats == 0.5 for _, beats in THEME_A)  # eighths
-    assert any(beats == 1 for _, beats in THEME_A)  # quarters
-    assert any(beats == 2 for _, beats in THEME_A)  # halves
-    assert any(beats == 4 for _, beats in THEME_A)  # whole notes
+    # transcription of tmp/korobeiniki_score_transcribed.txt:
+    # (P1+P2) x4 + bridge + G5 climax + runs x4 + walkdown = 380 beats
+    assert sum(b for _, b in _P1) == 32
+    assert sum(b for _, b in _P2) == 32
+    assert sum(b for _, b in _BRIDGE) == 56
+    assert sum(b for _, b in _CLIMAX) == 8
+    assert sum(b for _, b in _RUN) == 32
+    assert sum(b for _, b in _RUN2) == 32
+    assert sum(b for _, b in _WALKDOWN) == 60
+    assert sum(beats for _, beats in THEME_A) == 380.0
+    # the 64-beat phrase P1+P2 opens the piece and repeats 4 times
+    assert THEME_A[: len(_P1) + len(_P2)] == _P1 + _P2
+    assert THEME_A[len(_P1) + len(_P2) : 2 * (len(_P1) + len(_P2))] == _P1 + _P2
     for name, _ in THEME_A:
         if name != "R":
             note_freq(name)  # must not raise
     assert THEME_A[0][0] == "E5"  # opens on the accented high E
-    assert THEME_A[-1][0] == "A5"  # ends on the final held A
+    assert THEME_A[-1][0] == "G4"  # ends on the walkdown's final G
 
 
 def test_music_start_play_stop_without_mixer():

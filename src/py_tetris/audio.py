@@ -72,82 +72,78 @@ def note_freq(note: str) -> float:
 
 
 # "The Peddlers" (Korobeiniki) - public-domain Russian folk melody,
-# the classic Tetris theme. Full 45-bar transcription of the score
-# korobeiniki_score_p1/p2.png ("Piano Tiles Version", Zakura):
-# E minor, 4/4, quarter note = 170 in the score (played a bit faster).
-# (note, beats); "R" = rest; every bar sums to 4 beats.
-# NOTE: 35149.mid does NOT contain this melody (it has no E or B notes
-# at all - it is a different chromatic arrangement); the score is the
-# reference. The dense chromatic middle bars are a best-effort reading
-# of the score; listen and flag any bar that sounds off.
-_MAIN: tuple[tuple[str, float], ...] = (  # bars 1-8
+# the classic Tetris theme. Transcribed from
+# tmp/korobeiniki_score_transcribed.txt (per-octave staff lines,
+# one char = one eighth note, "R" = rest), E minor, 4/4.
+# Structure: the 32-beat phrase P1 (motif) + P2 (flourish) is stated
+# four times, then a quarter-note bridge to the held-G5 climax, four
+# run-throughs of the phrase, and a walkdown ending. 380 beats total.
+# NOTE: 35149.mid and the score PNGs are in tmp/ for reference; the
+# MIDI does NOT contain this melody (no E or B notes at all).
+_P1: tuple[tuple[str, float], ...] = (  # motif, 32 beats (8 bars)
     ("E5", 2), ("B4", 1), ("C5", 1),
-    ("D5", 2), ("C5", 1), ("B4", 1),
+    ("D5", 1), ("E5", 0.5), ("D5", 0.5), ("C5", 1), ("B4", 1),
     ("A4", 2), ("A4", 1), ("C5", 1),
     ("E5", 2), ("D5", 1), ("C5", 1),
-    ("B4", 2), ("R", 1), ("C5", 1),
-    ("D5", 2), ("E5", 1), ("R", 1),
-    ("C5", 2), ("A4", 1), ("R", 1),
+    ("B4", 3), ("C5", 1),
+    ("D5", 2), ("E5", 2),
+    ("C5", 2), ("A4", 2),
     ("A4", 4),
 )
-_DEV: tuple[tuple[str, float], ...] = (  # bars 9-20: development + runs to the climax
-    ("C5", 1), ("A4", 1), ("C5", 1), ("E5", 1),  # 9
-    ("F#5", 0.5), ("E5", 0.5), ("D5", 1), ("C5", 1), ("B4", 1),  # 10
-    ("E5", 0.5), ("D#5", 0.5), ("D5", 1), ("C#5", 1), ("B4", 1),  # 11
-    ("C5", 0.5), ("A4", 0.5), ("B4", 1), ("C5", 1), ("A4", 1),  # 12
-    ("B4", 0.5), ("E5", 0.5), ("G#4", 1), ("B4", 1), ("G4", 1),  # 13
-    ("A4", 1), ("G4", 1), ("F4", 1), ("D4", 1),  # 14
-    ("A4", 1), ("G4", 1), ("F4", 1), ("D4", 1),  # 15
-    ("E4", 0.5), ("D#4", 0.5), ("E4", 0.5), ("F#4", 0.5), ("G4", 0.5), ("A4", 0.5), ("B4", 0.5), ("C5", 0.5),  # 16
-    ("D5", 0.5), ("C5", 0.5), ("D5", 0.5), ("C5", 0.5), ("B4", 0.5), ("A4", 0.5), ("G#4", 0.5), ("E4", 0.5),  # 17
-    ("G#4", 0.5), ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("D#5", 0.5), ("E5", 0.5), ("F#5", 0.5),  # 18
-    ("E6", 3), ("R", 1),  # 19: fermata climax
-    ("G4", 2), ("R", 2),  # 20: 2/4 ff bar (normalized)
+_P2: tuple[tuple[str, float], ...] = (  # flourish + resolution, 32 beats
+    ("D5", 3), ("F5", 1), ("A5", 2), ("G5", 1), ("F5", 1),
+    ("E5", 3), ("C5", 1), ("E5", 2), ("D5", 1), ("C5", 1),
+    ("B4", 3), ("C5", 1),
+    ("D5", 2), ("E5", 2),
+    ("C5", 2), ("A4", 2),
+    ("A4", 4),
 )
-_RETURN: tuple[tuple[str, float], ...] = (  # bars 21-25: ff return of the motif in eighths
-    ("E5", 0.5), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("C5", 0.5), ("B4", 0.5), ("A4", 0.5),  # 21
-    ("A4", 0.5), ("A4", 0.5), ("C5", 0.5), ("E5", 0.5), ("D5", 0.5), ("C5", 0.5), ("B4", 0.5), ("A4", 0.5),  # 22
-    ("B4", 0.5), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("D5", 0.5), ("C5", 0.5), ("B4", 0.5),  # 23
-    ("C5", 0.5), ("A4", 0.5), ("A4", 2), ("R", 1),  # 24
-    ("R", 0.5), ("D5", 0.5), ("F5", 0.5), ("A5", 0.5), ("G5", 0.5), ("F5", 0.5), ("E5", 0.5), ("D5", 0.5),  # 25
+_BRIDGE: tuple[tuple[str, float], ...] = (  # quarter-note bridge, 56 beats
+    ("E5", 4), ("C5", 4),
+    ("D5", 4), ("B4", 4),
+    ("C5", 4), ("A4", 4),
+    ("G4", 4), ("B4", 4),
+    ("E5", 4), ("C5", 4),
+    ("D5", 4), ("B4", 4),
+    ("C5", 2), ("E5", 2), ("A5", 4),
 )
-_BRIDGE: tuple[tuple[str, float], ...] = (  # bars 26-30
-    ("R", 0.5), ("G4", 0.5), ("C5", 0.5), ("E5", 0.5), ("D5", 0.5), ("D#5", 0.5), ("B4", 1),  # 26
-    ("B4", 1), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("F5", 1),  # 27
-    ("C5", 1), ("A4", 1), ("A4", 2),  # 28
-    ("R", 0.5), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("D5", 0.5), ("C5", 1),  # 29
-    ("R", 0.5), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("D5", 0.5), ("C5", 1),  # 30
+_CLIMAX: tuple[tuple[str, float], ...] = (
+    ("G5", 8),  # the held climax note (fermata bar in the score)
 )
-_CLIMAX2: tuple[tuple[str, float], ...] = (  # bars 31-34: high chromatic peak
-    ("R", 0.5), ("B4", 0.5), ("C5", 0.5), ("D5", 0.5), ("D#5", 1), ("F5", 0.5), ("G5", 0.5),  # 31
-    ("E5", 0.5), ("D#5", 0.5), ("D5", 0.5), ("C#5", 0.5), ("C5", 0.5), ("B4", 0.5), ("A#4", 0.5), ("A4", 0.5),  # 32
-    ("G4", 0.5), ("F#4", 0.5), ("F4", 0.5), ("E4", 0.5), ("D#4", 0.5), ("D4", 0.5), ("C4", 0.5), ("B3", 0.5),  # 33
-    ("G5", 0.5), ("G5", 0.5), ("F5", 0.5), ("E5", 0.5), ("D5", 0.5), ("E5", 0.5), ("D5", 0.5), ("B4", 0.5),  # 34
+_RUN: tuple[tuple[str, float], ...] = (  # run-through of P1, 32 beats
+    ("E5", 2), ("B4", 1), ("C5", 1),
+    ("D5", 1), ("E5", 0.5), ("D5", 0.5), ("C5", 1), ("B4", 1),
+    ("A4", 2), ("A4", 1), ("C5", 1),
+    ("E5", 2), ("D5", 1), ("C5", 1),
+    ("B4", 1), ("E4", 1), ("G4", 1), ("C5", 1),
+    ("D5", 2), ("E5", 2),
+    ("C5", 2), ("A4", 2),
+    ("A4", 4),
 )
-_RUNS: tuple[tuple[str, float], ...] = (  # bars 35-41: fast eighth-note runs
-    ("E5", 0.5), ("D5", 0.5), ("C5", 0.5), ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("B4", 0.5), ("G#4", 0.5),  # 35
-    ("A4", 0.5), ("G#4", 0.5), ("A4", 0.5), ("B4", 0.5), ("E5", 0.5), ("D5", 0.5), ("C5", 0.5), ("B4", 0.5),  # 36
-    ("E5", 0.5), ("F5", 0.5), ("E5", 0.5), ("C5", 0.5), ("D5", 0.5), ("C5", 0.5), ("B4", 0.5), ("D5", 0.5),  # 37
-    ("E5", 0.5), ("D5", 0.5), ("C5", 0.5), ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("B4", 0.5), ("G#4", 0.5),  # 38
-    ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("B4", 0.5), ("A4", 1), ("E4", 1),  # 39
-    ("E5", 0.5), ("F5", 0.5), ("E5", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("D5", 0.5), ("B4", 0.5),  # 40
-    ("C5", 0.5), ("D5", 0.5), ("C5", 0.5), ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("B4", 0.5), ("G#4", 0.5),  # 41
+_RUN2: tuple[tuple[str, float], ...] = (  # run-through of P2, 32 beats
+    ("D5", 3), ("F5", 1), ("A5", 2), ("G5", 1), ("F5", 1),
+    ("E5", 3), ("C5", 1), ("E5", 2), ("D5", 1), ("C5", 1),
+    ("B4", 1), ("E4", 1), ("G4", 1), ("C5", 1),
+    ("D5", 2), ("E5", 2),
+    ("C5", 2), ("A4", 2),
+    ("A4", 4),
 )
-_CODA: tuple[tuple[str, float], ...] = (  # bars 42-45
-    ("A4", 0.5), ("G#4", 0.5), ("A4", 0.5), ("B4", 0.5), ("C#5", 0.5), ("D5", 0.5), ("B4", 1),  # 42
-    ("E5", 0.5), ("F5", 0.5), ("E5", 0.5), ("C5", 0.5), ("D5", 0.5), ("E5", 0.5), ("D5", 0.5), ("B4", 0.5),  # 43
-    ("C5", 0.5), ("D5", 0.5), ("C5", 0.5), ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("B4", 0.5), ("G#4", 0.5),  # 44
-    ("A4", 0.5), ("B4", 0.5), ("C5", 0.5), ("E5", 0.5), ("A5", 2),  # 45: final held A
+_WALKDOWN: tuple[tuple[str, float], ...] = (  # arpeggio walkdown ending, 60 beats
+    ("E4", 4), ("C4", 4),
+    ("D4", 4), ("B3", 4),
+    ("C4", 4), ("A3", 4),
+    ("G3", 4), ("B3", 4),
+    ("E4", 4), ("C4", 4),
+    ("D4", 4), ("B3", 4),
+    ("C4", 2), ("E4", 2), ("A4", 4),
+    ("G4", 4),
 )
 THEME_A: tuple[tuple[str, float], ...] = (
-    _MAIN
-    + (("R", 0.5),)  # breath before the development
-    + _DEV
-    + _RETURN
+    _P1 + _P2 + _P1 + _P2
     + _BRIDGE
-    + _CLIMAX2
-    + _RUNS
-    + _CODA
+    + _CLIMAX
+    + _RUN + _RUN2 + _RUN + _RUN2
+    + _WALKDOWN
 )
 MUSIC_BEAT = 60.0 / 190.0  # seconds per quarter note (score is 170; played a bit faster)
 

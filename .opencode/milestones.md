@@ -40,7 +40,7 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 ## M4 — Nice to have
 
 - [x] Autoplay demo bot on startup (greedy placement heuristic, ~100+ line games); click NEW GAME (or R/Enter) to take over; demo auto-restarts after game over
-- [x] Background music: Korobeiniki / "The Peddlers" — full 45-bar score transcription (motif, development + E6 climax, ff return, chromatic peak, coda on A5), procedural square-wave lead at ♩≈190, ~57s loop; `M` mutes music too. (`35149.mid` turned out to be a different chromatic arrangement — not this melody.)
+- [x] Background music: Korobeiniki / "The Peddlers" — full piece from the user's transcription (`tmp/korobeiniki_score_transcribed.txt`): phrase ×4, quarter-note bridge, held-G5 climax, run-throughs, walkdown ending; 380 beats ≈ 2min loop at ♩≈190; `M` mutes music too. (`35149.mid` turned out to be a different chromatic arrangement — not this melody.)
 - [ ] DAS/ARR: explicit key-hold timing instead of `pygame.key.set_repeat`
 - [ ] T-spin detection + back-to-back / combo scoring
 - [ ] Line-clear flash animation before rows collapse
