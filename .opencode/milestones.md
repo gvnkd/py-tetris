@@ -46,3 +46,12 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [x] Line-clear flash (blinking white overlay on the cleared rows, 0.25s)
 - [x] Smarter bot: depth-2 lookahead (top-8 placements × next piece) + hold usage; plays 1000+ line games
 - [x] Game modes: MARATHON (endless, level-up) / SPRINT (20 lines, fixed level, "YOU WIN") / ULTRA (2 min countdown, level 5, "TIME UP")
+
+## Backlog (ideas, not scheduled)
+
+- Deeper bot: 3–4 piece lookahead, T-spin setup search, better hold strategy
+- Music: bass/chord voices under the lead; per-section dynamics (piano/ff) like the score
+- Official sprint gravity (fixed fast level) and per-line ultra scaling
+- More modes (e.g. marathon level cap, "sudden death")
+- Key remapping / config file
+- Packaging: nixos module (desktop integration), AppImage or pip-installable wheel

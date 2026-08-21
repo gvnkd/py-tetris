@@ -2,10 +2,22 @@
 
 Tetris in Python (pygame), run and developed via a Nix flake.
 
-The game starts in **demo mode** (an autoplay bot plays). Pick a mode to
-take over: **MARATHON** (endless), **SPRINT** (first to 20 lines) or
-**ULTRA** (2 minutes, level 5) — the sidebar buttons start/restart in
-human mode.
+The game starts in **demo mode** (an autoplay bot plays at a human-like
+pace). Pick a mode to take over: **MARATHON** (endless), **SPRINT**
+(first to 20 lines) or **ULTRA** (2 minutes, level 5) — the sidebar
+buttons start/restart in human mode.
+
+## Features
+
+- Full SRS rotation with wall kicks, 7-bag randomizer, ghost piece
+- Hold, lock delay with move/rotate resets, DAS/ARR key repeat
+- Guideline scoring: T-spins (full/mini), back-to-back, combos
+- Game modes: marathon / sprint / ultra
+- Persistent high score (`~/.config/py-tetris/highscore`)
+- Procedural sound effects and the Korobeiniki ("The Peddlers") theme —
+  no audio assets, everything is generated at startup
+- Depth-2 lookahead demo bot with hold usage
+- Installed as a desktop app (`py-tetris.desktop` + icon)
 
 ## Run
 
@@ -32,7 +44,7 @@ nix run .# --option substituters "https://cache.nixos.org"
 | C | hold piece |
 | M | mute / unmute sounds and music |
 | P | pause |
-| R | restart (after game over) |
+| R | restart (after game over) / start a human marathon in demo mode |
 | Q | quit |
 
 Held keys auto-repeat with DAS/ARR timing (170 ms delay, 50 ms rate).
@@ -55,9 +67,11 @@ nix flake check .#
 ## Layout
 
 - `src/py_tetris/` — the package: `constants`, `pieces` (shapes + SRS),
-  `audio` (SFX + Korobeiniki music), `highscore`, `game` (logic, bot),
-  `render`, `app` (entry point)
-- `tests/` — headless pytest suite
+  `audio` (SFX + Korobeiniki music), `highscore`, `game` (logic + bot,
+  no pygame), `input` (DAS/ARR), `render`, `app` (entry point)
+- `tests/` — headless pytest suite (95 cases)
 - `pyproject.toml` — PEP 621 metadata, entry point, mypy/pytest config
-- `flake.nix` — pinned to nixos-26.05 (see `flake.lock`)
+- `flake.nix` — packages/app/devShell/checks, pinned to nixos-26.05
+  (see `flake.lock`)
+- `py-tetris.desktop` + `icons/` — desktop entry and hicolor icons
 - `tmp/` — reference material for the music transcription (gitignored)
