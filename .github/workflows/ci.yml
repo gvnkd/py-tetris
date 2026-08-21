@@ -11,7 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: nix-community/cache-nix-action@main
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          # exact key: flake inputs + nix sources
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+          # partial hit when only sources changed
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          # keep the cached store bounded (GitHub caches: 10GB total)
+          gc-max-store-size-linux: 1G
       - name: Build package
         run: nix build .#
       - name: Run flake checks (pytest + mypy)
