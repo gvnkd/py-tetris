@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/nix-cache-action@main
+      - uses: nix-community/cache-nix-action@main
       - name: Build package
         run: nix build .#
       - name: Run flake checks (pytest + mypy)
