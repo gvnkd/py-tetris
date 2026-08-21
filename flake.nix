@@ -2,7 +2,8 @@
   description = "Tetris game written in Python (pygame)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # stable: fewer surprise rebuilds; flake.lock pins the exact revision
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs = { self, nixpkgs }:
@@ -24,11 +25,25 @@
             pyproject = true;
             build-system = [ pkgs.python3Packages.setuptools ];
             dependencies = [ pkgs.python3Packages.pygame ];
+            # nixpkgs' "pygame" is pygame-ce (dist "pygame-ce") on unstable
+            # but upstream pygame (dist "pygame") on 26.05, so the wheel's
+            # Requires-Dist name check can never pass on both; the real
+            # dependency is provided by nix, so skip the redundant check
+            dontCheckRuntimeDeps = true;
             # the test suite runs in checks.default, not during the build
             doInstallCheck = false;
+            postInstall = ''
+              install -Dm644 $src/py-tetris.desktop \
+                $out/share/applications/py-tetris.desktop
+              install -Dm644 $src/icons/py-tetris-128.png \
+                $out/share/icons/hicolor/128x128/apps/py-tetris.png
+              install -Dm644 $src/icons/py-tetris-512.png \
+                $out/share/icons/hicolor/512x512/apps/py-tetris.png
+            '';
             meta = {
               description = "Tetris game written in Python";
               mainProgram = "py-tetris";
+              desktopName = "py-tetris.desktop";
             };
           };
         in

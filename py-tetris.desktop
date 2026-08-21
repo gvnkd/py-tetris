@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Py Tetris
+Comment=Tetris game written in Python
+Exec=py-tetris
+Icon=py-tetris
+Type=Application
+Categories=Game;
+Keywords=tetris;game;puzzle;
