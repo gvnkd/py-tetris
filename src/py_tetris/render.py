@@ -12,11 +12,14 @@ from py_tetris.constants import (
     DIM,
     GHOST,
     GRID,
-    NEW_GAME_RECT,
+    MARATHON_RECT,
     PANEL,
     ROWS,
     SIDEBAR_INNER_W,
     SIDEBAR_X,
+    SPRINT_RECT,
+    SPRINT_TARGET,
+    ULTRA_RECT,
     WHITE,
 )
 from py_tetris.constants import Color
@@ -117,11 +120,25 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
         pygame.draw.line(screen, GRID, (0, y * CELL), (BOARD_W, y * CELL))
     pygame.draw.rect(screen, BORDER, board_rect, 2)
 
-    sx = SIDEBAR_X
-    pw = SIDEBAR_INNER_W
     f_tiny, f_small, f_med, f_big = (
         fonts["tiny"], fonts["small"], fonts["med"], fonts["big"]
     )
+
+    if game.clear_flash > 0 and game.last_cleared > 0:
+        n = min(game.last_cleared, ROWS)
+        alpha = 110 if int(game.clear_flash * 20) % 2 == 0 else 30
+        flash = pygame.Surface((BOARD_W, n * CELL), pygame.SRCALPHA)
+        flash.fill((255, 255, 255, alpha))
+        screen.blit(flash, (0, (ROWS - n) * CELL))
+        if game.last_tspin:
+            label = f_med.render("T-SPIN!" if game.last_tspin == "full" else "MINI T-SPIN", True, (250, 200, 0))
+            screen.blit(label, (BOARD_W // 2 - label.get_width() // 2, BOARD_H // 2 - 80))
+        if game.combo >= 2:
+            label = f_med.render(f"COMBO x{game.combo}", True, (250, 200, 0))
+            screen.blit(label, (BOARD_W // 2 - label.get_width() // 2, BOARD_H // 2 - 40))
+
+    sx = SIDEBAR_X
+    pw = SIDEBAR_INNER_W
 
     hold_rect = pygame.Rect(sx, 10, pw, 104)
     draw_panel(screen, hold_rect, "HOLD", f_small)
@@ -144,35 +161,40 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
     draw_text(screen, str(game.highscore), sx + 10, info_rect.y + 102, f_med, (250, 200, 0))
     draw_text(screen, "LEVEL", sx + 112, info_rect.y + 30, f_small, DIM)
     draw_text(screen, str(game.level), sx + 112, info_rect.y + 48, f_big, WHITE)
-    draw_text(screen, "LINES", sx + 112, info_rect.y + 86, f_small, DIM)
-    draw_text(screen, str(game.lines), sx + 112, info_rect.y + 102, f_med, WHITE)
+    if game.game_mode == "ultra":
+        t = int(game.time_left)
+        draw_text(screen, "TIME", sx + 112, info_rect.y + 86, f_small, DIM)
+        draw_text(screen, f"{t // 60}:{t % 60:02d}", sx + 112, info_rect.y + 102, f_med, WHITE)
+    else:
+        draw_text(screen, "LINES", sx + 112, info_rect.y + 86, f_small, DIM)
+        shown = f"{game.lines}/{SPRINT_TARGET}" if game.game_mode == "sprint" else str(game.lines)
+        draw_text(screen, shown, sx + 112, info_rect.y + 102, f_med, WHITE)
 
-    help_rect = pygame.Rect(sx, 410, pw, 128)
+    mouse = pygame.mouse.get_pos()
+    for mode_label, rect, gm in (
+        ("MARATHON", MARATHON_RECT, "marathon"),
+        ("SPRINT", SPRINT_RECT, "sprint"),
+        ("ULTRA", ULTRA_RECT, "ultra"),
+    ):
+        active = game.mode == "human" and game.game_mode == gm
+        hover = rect.collidepoint(mouse)
+        fill = (60, 120, 200) if hover else ((48, 56, 100) if active else (30, 34, 58))
+        pygame.draw.rect(screen, fill, rect, border_radius=5)
+        pygame.draw.rect(screen, BORDER, rect, 1, border_radius=5)
+        img = f_small.render(mode_label, True, WHITE if (hover or active) else DIM)
+        screen.blit(img, (rect.x + (rect.w - img.get_width()) // 2, rect.y + (rect.h - img.get_height()) // 2))
+
+    help_rect = pygame.Rect(sx, 522, pw, 70)
     draw_panel(screen, help_rect, "CONTROLS", f_small)
     for i, line in enumerate(
-        ["< >  move     v  soft drop",
-         "^/X rotate    Z  rotate ccw",
-         "space  hard drop    C  hold",
-         "P  pause    M  mute",
-         "Q  quit     R  restart"]
+        ["< > move   v drop   space hard",
+         "^/X/Z rotate   C hold",
+         "P pause   M mute   Q quit"]
     ):
-        draw_text(screen, line, sx + 10, help_rect.y + 30 + i * 18, f_tiny, DIM)
-
-    hover = NEW_GAME_RECT.collidepoint(pygame.mouse.get_pos())
-    fill = (60, 120, 200) if hover else (36, 62, 108)
-    pygame.draw.rect(screen, fill, NEW_GAME_RECT, border_radius=6)
-    pygame.draw.rect(screen, BORDER, NEW_GAME_RECT, 1, border_radius=6)
-    label = f_med.render("NEW GAME", True, WHITE)
-    screen.blit(
-        label,
-        (
-            NEW_GAME_RECT.x + (NEW_GAME_RECT.w - label.get_width()) // 2,
-            NEW_GAME_RECT.y + (NEW_GAME_RECT.h - label.get_height()) // 2,
-        ),
-    )
+        draw_text(screen, line, sx + 10, help_rect.y + 28 + i * 14, f_tiny, DIM)
 
     if game.mode == "demo" and not game.over:
-        banner = f_small.render("DEMO - click NEW GAME to play", True, DIM)
+        banner = f_small.render("DEMO - pick a mode to play", True, DIM)
         screen.blit(banner, (BOARD_W // 2 - banner.get_width() // 2, 6))
 
     if game.paused and not game.over:
@@ -184,6 +206,12 @@ def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font])
         overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 170))
         screen.blit(overlay, board_rect)
-        draw_text(screen, "GAME OVER", BOARD_W // 2, BOARD_H // 2 - 70, fonts["huge"], (240, 80, 80))
+        if game.won:
+            title, tcolor = "YOU WIN!", (250, 200, 0)
+        elif game.game_mode == "ultra":
+            title, tcolor = "TIME UP", (240, 80, 80)
+        else:
+            title, tcolor = "GAME OVER", (240, 80, 80)
+        draw_text(screen, title, BOARD_W // 2, BOARD_H // 2 - 70, fonts["huge"], tcolor)
         draw_text(screen, f"Score: {game.score}", BOARD_W // 2, BOARD_H // 2 - 10, f_big, WHITE)
         draw_text(screen, "R - restart   Q - quit", BOARD_W // 2, BOARD_H // 2 + 30, f_med, DIM)

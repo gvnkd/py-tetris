@@ -29,6 +29,7 @@ class Sounds:
     hard: pygame.mixer.Sound | None = None
     clear: pygame.mixer.Sound | None = None
     tetris: pygame.mixer.Sound | None = None
+    tspin: pygame.mixer.Sound | None = None
     over: pygame.mixer.Sound | None = None
 
     @classmethod
@@ -45,6 +46,7 @@ class Sounds:
             s.hard = pygame.mixer.Sound(buffer=_tone(90, 120, 0.5, rate))
             s.clear = pygame.mixer.Sound(buffer=_tone(660, 130, 0.5, rate))
             s.tetris = pygame.mixer.Sound(buffer=_tone(880, 220, 0.55, rate))
+            s.tspin = pygame.mixer.Sound(buffer=_tone(1046, 90, 0.5, rate))
             s.over = pygame.mixer.Sound(buffer=_tone(110, 700, 0.5, rate))
         except pygame.error:
             pass

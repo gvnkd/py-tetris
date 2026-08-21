@@ -23,16 +23,21 @@ from py_tetris.audio import (
     render_melody,
 )
 from py_tetris.constants import (
+    ARR_INTERVAL,
+    CLEAR_FLASH_DURATION,
     COLS,
+    DAS_DELAY,
     HEIGHT,
     LOCK_DELAY,
     MAX_LOCK_RESETS,
     ROWS,
     SCORE_TABLE,
+    SPRINT_TARGET,
     WIDTH,
 )
 from py_tetris.game import Bot, Game, evaluate_placement
 from py_tetris.highscore import save_highscore
+from py_tetris.input import AutoRepeat
 from py_tetris.pieces import BOX, COLORS, I_KICKS, JLSTZ_KICKS, Piece, SHAPES, rotate_cells
 from py_tetris.render import draw
 
@@ -356,6 +361,28 @@ def test_lock_reports_no_clear():
     g = make_game("O")
     g.lock()
     assert g.last_cleared == 0
+    assert g.clear_flash == 0
+
+
+def test_clear_flash_set_on_clear_and_expires():
+    g = make_game("I")
+    g.piece.x = 3
+    g.piece.y = ROWS - 2
+    for x in range(COLS):
+        if not (3 <= x <= 6):
+            g.board[ROWS - 1][x] = (5, 5, 5)
+    assert g.lock() == 1
+    assert g.clear_flash == CLEAR_FLASH_DURATION
+    g.update(CLEAR_FLASH_DURATION * 1000 + 50)
+    assert g.clear_flash == 0
+
+
+def test_clear_flash_frozen_when_paused():
+    g = make_game()
+    g.clear_flash = CLEAR_FLASH_DURATION
+    g.paused = True
+    g.update(1000)
+    assert g.clear_flash == CLEAR_FLASH_DURATION
 
 
 # --- hold ----------------------------------------------------------------------
@@ -399,6 +426,151 @@ def test_hold_reallowed_after_soft_drop():
     assert g.piece.kind == "S"
 
 
+# --- T-spins, back-to-back, combos -------------------------------------------------
+
+
+def setup_tspin_double(g: Game) -> None:
+    """Classic T-spin double slot: T (state 2, facing down) at x=1, y=ROWS-3."""
+    c = (5, 5, 5)
+    for x in (0, 1, 3, 4):  # overhang above
+        g.board[ROWS - 3][x] = c
+    for x in (0, 4, 5, 6, 7, 8, 9):
+        g.board[ROWS - 2][x] = c
+    for x in (0, 1, 3, 4, 5, 6, 7, 8, 9):
+        g.board[ROWS - 1][x] = c
+    p = Piece("T")
+    p.cells = rotate_cells(rotate_cells(p.cells, 1, BOX["T"]), 1, BOX["T"])
+    p.state = 2
+    p.x, p.y = 1, ROWS - 3
+    g.piece = p
+    g.last_action = "rotate"
+
+
+def setup_tetris(g: Game, gap=(3, 4, 5, 6)) -> None:
+    """Four rows ready for a TETRIS: I piece completes the bottom row."""
+    c = (5, 5, 5)
+    for row in (ROWS - 4, ROWS - 3, ROWS - 2):
+        for x in range(COLS):
+            g.board[row][x] = c
+    for x in range(COLS):
+        if x not in gap:
+            g.board[ROWS - 1][x] = c
+    p = Piece("I")
+    p.x, p.y = min(gap), ROWS - 2
+    g.piece = p
+    g.last_action = "drop"
+
+
+def test_tspin_full_double():
+    g = Game(highscore=0)
+    setup_tspin_double(g)
+    assert g.lock() == 2
+    assert g.last_tspin == "full"
+    assert g.score == 1200  # T-spin double, level 1
+    assert g.combo == 1
+    assert g.b2b_active
+
+
+def test_tspin_mini_single():
+    g = Game(highscore=0)
+    c = (5, 5, 5)
+    g.board[ROWS - 3][1] = c  # only ONE front corner (state 0 faces up)
+    for x in (0, 4, 5, 6, 7, 8, 9):
+        g.board[ROWS - 2][x] = c
+    for x in (0, 1, 3, 4, 5, 6, 7, 8, 9):
+        g.board[ROWS - 1][x] = c
+    g.piece = Piece("T")  # state 0 at x=3, y=ROWS-3
+    g.piece.x, g.piece.y = 1, ROWS - 3
+    g.last_action = "rotate"
+    assert g.lock() == 1
+    assert g.last_tspin == "mini"
+    assert g.score == 200
+    assert not g.b2b_active  # mini single is not "difficult"
+
+
+def test_tspin_requires_rotation():
+    g = Game(highscore=0)
+    setup_tspin_double(g)
+    g.last_action = "move"  # slid in, not rotated in
+    assert g.lock() == 2
+    assert g.last_tspin == ""
+    assert g.score == 300  # plain double
+
+
+def test_tspin_zero_clear_scores():
+    g = Game(highscore=0)
+    c = (5, 5, 5)
+    for x in (0, 1, 3, 4):
+        g.board[ROWS - 3][x] = c
+    for x in (0, 4):
+        g.board[ROWS - 2][x] = c
+        g.board[ROWS - 1][x] = c
+    for x in (1, 3):
+        g.board[ROWS - 1][x] = c
+    p = Piece("T")
+    p.cells = rotate_cells(rotate_cells(p.cells, 1, BOX["T"]), 1, BOX["T"])
+    p.state = 2
+    p.x, p.y = 1, ROWS - 3
+    g.piece = p
+    g.last_action = "rotate"
+    assert g.lock() == 0
+    assert g.last_tspin == "full"
+    assert g.score == 400
+    assert g.combo == 0  # no lines: combo neither advances nor resets
+
+
+def test_back_to_back_bonus():
+    g = Game(highscore=0)
+    setup_tetris(g)
+    g.lock()
+    assert g.score == 800  # TETRIS, no b2b yet
+    assert g.b2b_active
+    setup_tspin_double(g)
+    g.lock()
+    # T-spin double x1.5 + combo (2nd consecutive clear) x50
+    assert g.score == 800 + int(1200 * 1.5) + 50
+
+
+def test_back_to_back_broken_by_normal_clear():
+    g = Game(highscore=0)
+    setup_tetris(g)
+    g.lock()  # 800, b2b active
+    c = (5, 5, 5)
+    for x in range(COLS):
+        if x not in (0, 1, 2, 3):
+            g.board[ROWS - 1][x] = c
+    p = Piece("I")
+    p.x, p.y = 0, ROWS - 2
+    g.piece = p
+    g.last_action = "drop"
+    g.lock()  # plain single: 100, breaks b2b; combo +50
+    assert g.score == 800 + 100 + 50
+    assert not g.b2b_active
+    setup_tetris(g)
+    g.lock()  # TETRIS again: 800 (no multiplier), combo +100
+    assert g.score == 800 + 100 + 50 + 800 + 100
+
+
+def test_combo_counts_consecutive_clears():
+    g = Game(highscore=0)
+    c = (5, 5, 5)
+    for gap in ((0, 1, 2, 3), (5, 6, 7, 8)):
+        for x in range(COLS):
+            if x not in gap:
+                g.board[ROWS - 1][x] = c
+        p = Piece("I")
+        p.x, p.y = min(gap), ROWS - 2
+        g.piece = p
+        g.last_action = "drop"
+        g.lock()
+    assert g.combo == 2
+    # a lock without clears resets the combo
+    g.piece = Piece("O")
+    g.last_action = "drop"
+    g.lock()
+    assert g.combo == 0
+
+
 # --- high score ------------------------------------------------------------------
 
 
@@ -429,6 +601,127 @@ def test_highscore_tracks_best_score():
     g.score = 200
     g.lock()
     assert g.highscore == 200
+
+
+# --- game modes ---------------------------------------------------------------------
+
+
+def test_sprint_wins_at_target_lines():
+    g = Game(game_mode="sprint", highscore=0)
+    g.lines = SPRINT_TARGET - 1
+    c = (5, 5, 5)
+    for x in range(COLS):
+        if x not in (3, 4, 5, 6):
+            g.board[ROWS - 1][x] = c
+    p = Piece("I")
+    p.x, p.y = 3, ROWS - 2
+    g.piece = p
+    g.lock()
+    assert g.over
+    assert g.won
+    assert g.lines == SPRINT_TARGET
+
+
+def test_sprint_level_stays_fixed():
+    g = Game(game_mode="sprint", highscore=0)
+    c = (5, 5, 5)
+    for row in (ROWS - 5, ROWS - 4, ROWS - 3, ROWS - 2):
+        for x in range(COLS):
+            g.board[row][x] = c
+    for x in range(COLS):
+        if x not in (3, 4, 5, 6):
+            g.board[ROWS - 1][x] = c
+    p = Piece("I")
+    p.x, p.y = 3, ROWS - 2
+    g.piece = p
+    g.lock()
+    assert g.lines == 5
+    assert g.level == 1  # no speed-up in sprint
+
+
+def test_ultra_counts_down_and_ends():
+    g = Game(game_mode="ultra", highscore=0)
+    assert g.level == 5
+    g.time_left = 0.5
+    g.update(1000)
+    assert g.over
+    assert not g.won
+    assert g.time_left == 0
+
+
+def test_ultra_level_stays_fixed():
+    g = Game(game_mode="ultra", highscore=0)
+    g.lines = 15
+    for row in (ROWS - 5, ROWS - 4, ROWS - 3, ROWS - 2):
+        for x in range(COLS):
+            g.board[row][x] = (5, 5, 5)
+    for x in range(COLS):
+        if x not in (3, 4, 5, 6):
+            g.board[ROWS - 1][x] = (5, 5, 5)
+    p = Piece("I")
+    p.x, p.y = 3, ROWS - 2
+    g.piece = p
+    g.lock()
+    assert g.lines == 20
+    assert g.level == 5  # fixed at ultra level
+
+
+def test_marathon_level_still_rises():
+    g = Game(game_mode="marathon", highscore=0)
+    g.lines = 9
+    c = (5, 5, 5)
+    for x in range(COLS):
+        if x not in (3, 4, 5, 6):
+            g.board[ROWS - 1][x] = c
+    p = Piece("I")
+    p.x, p.y = 3, ROWS - 2
+    g.piece = p
+    g.lock()
+    assert g.lines == 10
+    assert g.level == 2
+
+
+# --- DAS/ARR ------------------------------------------------------------------------
+
+
+def test_auto_repeat_no_steps_before_das():
+    ar = AutoRepeat()
+    ar.press()
+    assert ar.tick(DAS_DELAY * 1000 - 1) == 0  # just under DAS: nothing yet
+
+
+def test_auto_repeat_das_then_arr():
+    ar = AutoRepeat()
+    ar.press()
+    assert ar.tick(int(DAS_DELAY * 1000)) == 1  # first repeat at DAS
+    assert ar.tick(int(ARR_INTERVAL * 1000) - 1) == 0
+    assert ar.tick(1) == 1  # next repeat at ARR
+    assert ar.tick(int(ARR_INTERVAL * 1000)) == 1
+
+
+def test_auto_repeat_release_stops():
+    ar = AutoRepeat()
+    ar.press()
+    ar.tick(1000)
+    ar.release()
+    assert ar.tick(1000) == 0
+
+
+def test_auto_repeat_press_restarts_das():
+    ar = AutoRepeat()
+    ar.press()
+    ar.tick(1000)
+    ar.press()  # re-press: DAS window restarts
+    assert ar.tick(DAS_DELAY * 1000 - 1) == 0
+
+
+def test_auto_repeat_catches_up_on_large_dt():
+    ar = AutoRepeat()
+    ar.press()
+    total_ms = 1000
+    steps = ar.tick(total_ms)
+    expected = 1 + int((total_ms / 1000 - DAS_DELAY) // ARR_INTERVAL)
+    assert steps == expected
 
 
 # --- sounds (headless) --------------------------------------------------------------
@@ -508,15 +801,22 @@ def test_music_start_play_stop_without_mixer():
 
 
 @pytest.mark.parametrize("n", [1, 2, 3, 4])
-def test_clear_lines_scores_by_table(n):
+def test_clear_lines_mechanics(n):
     g = make_game()
     g.level = 1
     fill_rows(g, n)
-    score0 = g.score
     g._clear_lines()
     assert g.lines == n
-    assert g.score - score0 == SCORE_TABLE[n]
     assert all(c is None for c in g.board[ROWS - 1])
+
+
+@pytest.mark.parametrize("n", [1, 2, 3, 4])
+def test_score_clear_by_table(n):
+    g = make_game()
+    g.level = 1
+    score0 = g.score
+    g._score_clear(n, "")
+    assert g.score - score0 == SCORE_TABLE[n]
 
 
 def test_clear_lines_shifts_rows_down():
@@ -547,13 +847,16 @@ def test_level_up_after_ten_lines():
     assert g.level == 2
 
 
-def test_clear_uses_new_level_for_scoring():
+def test_score_clear_uses_level_set_by_clear():
     g = make_game()
     g.lines = 9
     g.level = 1
     fill_rows(g, 1)
-    g._clear_lines()
-    assert g.score == SCORE_TABLE[1] * 2  # level was already 2 when scoring
+    g._clear_lines()  # lines 9 -> 10, level 1 -> 2
+    assert g.level == 2
+    score0 = g.score
+    g._score_clear(1, "")  # lock() scores after the level update
+    assert g.score - score0 == SCORE_TABLE[1] * 2
 
 
 def test_drop_delay_decreases_with_level():
@@ -690,17 +993,18 @@ def test_evaluate_height_uses_topmost_cell():
     assert evaluate_placement(b, frozenset(), 0, 0) == -12
 
 
-def test_bot_plays_full_game_to_game_over():
+def test_bot_survives_long_games():
+    # the depth-2 bot outlasts hundreds of pieces (depth-1 died at ~300)
     random.seed(11)
     g = Game(mode="demo")
     bot = Bot()
-    steps = 0
-    while not g.over and steps < 5000:
+    for _ in range(200):
         bot.step(g, 1000)  # forces a decision every step
         g.update(1000)
-        steps += 1
-    assert g.over
-    assert steps < 5000
+        if g.over:
+            break
+    assert not g.over
+    assert g.lines > 40
 
 
 def test_bot_ignores_human_games():
@@ -710,6 +1014,20 @@ def test_bot_ignores_human_games():
     piece0 = g.piece
     bot.step(g, 10000)
     assert g.piece is piece0  # untouched
+
+
+def test_bot_uses_hold_when_beneficial():
+    g = Game(highscore=0)
+    c = (5, 5, 5)
+    for x in range(COLS):
+        if x not in (3, 4, 5, 6):
+            g.board[ROWS - 1][x] = c  # bottom row waits for the I in hold
+    g.piece = Piece("T")
+    g.held_kind = "I"
+    g.can_hold = True
+    Bot().play(g)
+    assert g.held_kind == "T"  # bot held the T to let the I finish the line
+    assert g.lines == 1
 
 
 # --- rendering (headless) ----------------------------------------------------------
@@ -732,6 +1050,9 @@ def test_render_frames_headless():
         draw(screen, g, fonts)
         g.mode = "human"
         draw(screen, g, fonts)
+        g.last_cleared = 2
+        g.clear_flash = CLEAR_FLASH_DURATION
+        draw(screen, g, fonts)  # with the line-clear flash
         g.paused = True
         draw(screen, g, fonts)
         g.over = True

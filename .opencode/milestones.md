@@ -25,11 +25,11 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [x] Full type hints on `tetris.py`, mypy `--strict` clean
 - [x] SRS-kick and lock-delay test cases (landed with M1)
 
-## M3 — Nix polish
+## M3 — Nix polish (done)
 
-- [ ] Desktop entry + icon so the app shows in GUI menus
-- [ ] Evaluate pinning nixpkgs to `stable` instead of `unstable` (fewer surprise rebuilds)
-- [ ] Document the dead local-cache workaround (`--option substituters`) for other devs
+- [x] Desktop entry + icon (`py-tetris.desktop`, hicolor 128/512 icons) installed into the package; `meta.desktopName` set
+- [x] Pinned nixpkgs to **nixos-26.05 (stable)**: builds after `dontCheckRuntimeDeps = true` (pygame vs pygame-ce dist-name mismatch on stable); see AGENTS.md
+- [x] README.md with run/develop instructions incl. the dead-local-cache workaround
 
 ## M5 — Refactor (done)
 
@@ -37,12 +37,12 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [x] PEP 621 `pyproject.toml` (setuptools backend, `py-tetris` console script, strict mypy + pytest config) replaces legacy `setup.py`; flake uses `pyproject = true`
 - [x] Dev shell: `python3 -m py_tetris`, mypy available; all 68 tests + mypy green on the new layout
 
-## M4 — Nice to have
+## M4 — Nice to have (done)
 
-- [x] Autoplay demo bot on startup (greedy placement heuristic, ~100+ line games); click NEW GAME (or R/Enter) to take over; demo auto-restarts after game over
+- [x] Autoplay demo bot on startup; click a mode button (or R/Enter) to take over; demo auto-restarts after game over
 - [x] Background music: Korobeiniki / "The Peddlers" — full piece from the user's transcription (`tmp/korobeiniki_score_transcribed.txt`): phrase ×4, quarter-note bridge, held-G5 climax, run-throughs, walkdown ending; 380 beats ≈ 2min loop at ♩≈190; `M` mutes music too. (`35149.mid` turned out to be a different chromatic arrangement — not this melody.)
-- [ ] DAS/ARR: explicit key-hold timing instead of `pygame.key.set_repeat`
-- [ ] T-spin detection + back-to-back / combo scoring
-- [ ] Line-clear flash animation before rows collapse
-- [ ] Smarter bot: lookahead (2–4 pieces), hold usage
-- [ ] Game modes (marathon / sprint / ultra)
+- [x] DAS/ARR: explicit key-hold timing via `AutoRepeat` (170 ms / 50 ms), replaces `pygame.key.set_repeat`
+- [x] T-spin detection (3-corner rule, full/mini) + back-to-back ×1.5 + combo scoring, T-SPIN sound and on-board text
+- [x] Line-clear flash (blinking white overlay on the cleared rows, 0.25s)
+- [x] Smarter bot: depth-2 lookahead (top-8 placements × next piece) + hold usage; plays 1000+ line games
+- [x] Game modes: MARATHON (endless, level-up) / SPRINT (20 lines, fixed level, "YOU WIN") / ULTRA (2 min countdown, level 5, "TIME UP")
