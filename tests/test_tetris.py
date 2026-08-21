@@ -24,6 +24,7 @@ from py_tetris.audio import (
 )
 from py_tetris.constants import (
     ARR_INTERVAL,
+    BOT_THINK_INTERVAL,
     CLEAR_FLASH_DURATION,
     COLS,
     DAS_DELAY,
@@ -995,16 +996,18 @@ def test_evaluate_height_uses_topmost_cell():
 
 def test_bot_survives_long_games():
     # the depth-2 bot outlasts hundreds of pieces (depth-1 died at ~300)
+    # 100ms ticks: coarse ticks (e.g. 1000ms) let gravity lock pieces
+    # before the bot's plan executes, which is not how the real loop runs
     random.seed(11)
     g = Game(mode="demo")
     bot = Bot()
-    for _ in range(200):
-        bot.step(g, 1000)  # forces a decision every step
-        g.update(1000)
-        if g.over:
-            break
-    assert not g.over
-    assert g.lines > 40
+    steps = 0
+    while g.lines < 50 and steps < 5000 and not g.over:
+        bot.step(g, 100)
+        g.update(100)
+        steps += 1
+    assert g.lines >= 50
+    assert steps < 5000
 
 
 def test_bot_ignores_human_games():
@@ -1014,6 +1017,64 @@ def test_bot_ignores_human_games():
     piece0 = g.piece
     bot.step(g, 10000)
     assert g.piece is piece0  # untouched
+
+
+def test_bot_thinks_before_acting():
+    random.seed(2)
+    g = Game(mode="demo")
+    bot = Bot()
+    piece0 = g.piece
+    for _ in range(5):  # 500ms < BOT_THINK_INTERVAL: no plan yet
+        bot.step(g, 100)
+        g.update(100)
+    assert g.piece is piece0
+    for _ in range(30):  # plan + animated execution finishes the drop
+        bot.step(g, 100)
+        g.update(100)
+        if g.piece is not piece0:
+            break
+    assert g.piece is not piece0
+
+
+def test_bot_animates_moves_step_by_step():
+    # a plan with several actions takes several ticks, not one
+    random.seed(2)
+    g = Game(mode="demo")
+    bot = Bot()
+    steps = 0
+    while not bot.queue and steps < 60:  # wait for a non-trivial plan
+        bot.step(g, 100)
+        g.update(100)
+        steps += 1
+    assert bot.queue  # at least one rotate/move to animate
+    piece = g.piece
+    bot.step(g, 100)  # one tick: at most one micro-step
+    assert g.piece is piece  # no instant drop
+    for _ in range(30):
+        bot.step(g, 100)
+        g.update(100)
+        if bot.phase == "pause":
+            break
+    assert bot.phase == "pause"  # finished with the human-like pause
+
+
+def test_bot_demo_pace():
+    # ~1 drop per 1.3-1.6s: a couple in 3s, not a machine gun
+    random.seed(2)
+    g = Game(mode="demo")
+    bot = Bot()
+    drops = 0
+    in_pause = False
+    for _ in range(30):
+        bot.step(g, 100)
+        g.update(100)
+        if bot.phase == "pause":
+            if not in_pause:
+                drops += 1
+            in_pause = True
+        else:
+            in_pause = False
+    assert 1 <= drops <= 3
 
 
 def test_bot_uses_hold_when_beneficial():

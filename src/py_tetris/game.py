@@ -4,6 +4,7 @@ import random
 
 from py_tetris.constants import (
     B2B_MULTIPLIER,
+    BOT_DROP_PAUSE,
     BOT_THINK_INTERVAL,
     CLEAR_FLASH_DURATION,
     COMBO_BONUS,
@@ -358,23 +359,97 @@ def evaluate_placement(
 
 
 class Bot:
-    """Plays demo mode: depth-2 lookahead over the top-K placements of each
-    candidate piece (including hold), then executes the best plan."""
+    """Plays demo mode with a human-like rhythm: waits for the piece to fall
+    a bit, plans (depth-2 lookahead over the top-K placements, including
+    hold), then animates the plan one rotation / one cell at a time before
+    hard-dropping and pausing."""
 
     TOP_K = 8
+    MOVE_STEP = 0.08  # seconds per cell of horizontal movement
+    ROTATE_STEP = 0.15  # seconds per rotation
+    SETTLE = 0.15  # seconds to "look" at the spot before a straight drop
 
     def __init__(self) -> None:
         self.think_timer: float = 0.0
+        self.pause_timer: float = 0.0
+        self.phase: str = "think"  # "think" | "execute" | "pause"
+        self.queue: list[tuple[str, int]] = []
+        self.act_timer: float = 0.0
+        self.plan_piece: Piece | None = None
 
     def step(self, game: Game, dt: float) -> None:
         if game.mode != "demo" or game.over or game.paused:
+            self.phase = "think"
             self.think_timer = 0.0
+            self.pause_timer = 0.0
+            self.queue = []
+            self.plan_piece = None
+            return
+        if self.phase == "pause":
+            self.pause_timer -= dt / 1000.0
+            if self.pause_timer <= 0:
+                self.phase = "think"
+                self.think_timer = 0.0
+            return
+        if self.phase == "execute":
+            self._execute_step(game, dt)
             return
         self.think_timer += dt / 1000.0
         if self.think_timer < BOT_THINK_INTERVAL:
             return
         self.think_timer = 0.0
-        self.play(game)
+        self._start_execute(game)
+
+    def _start_pause(self) -> None:
+        self.phase = "pause"
+        self.pause_timer = BOT_DROP_PAUSE
+
+    def _start_execute(self, game: Game) -> None:
+        plan = self.plan_move(game)
+        p = game.piece
+        if plan is None or p is None:
+            game.hard_drop()
+            self._start_pause()
+            return
+        if plan[0]:
+            game.hold()
+            p = game.piece
+            if p is None:
+                self._start_pause()
+                return
+        turns = (plan[1] - p.state) % 4
+        dx = plan[2] - p.x
+        self.queue = [("rotate", 0)] * turns + [("move", 1 if dx > 0 else -1)] * abs(dx)
+        self.plan_piece = p
+        self.act_timer = 0.0
+        self.phase = "execute"
+
+    def _execute_step(self, game: Game, dt: float) -> None:
+        if game.piece is not self.plan_piece:
+            # the planned piece was locked while we were moving; re-plan
+            self.queue = []
+            self.plan_piece = None
+            self.phase = "think"
+            self.think_timer = 0.0
+            return
+        self.act_timer += dt / 1000.0
+        delay = self.MOVE_STEP if self.queue and self.queue[0][0] == "move" else (
+            self.ROTATE_STEP if self.queue else self.SETTLE
+        )
+        if self.act_timer < delay:
+            return
+        self.act_timer = 0.0
+        if self.queue:
+            action, arg = self.queue.pop(0)
+            ok = game.rotate(1) if action == "rotate" else game.move(arg, 0)
+            if not ok:
+                self.queue = []
+                game.hard_drop()
+                self._start_pause()
+                return
+        if not self.queue:
+            game.hard_drop()
+            self._start_pause()
 
     def _next_kinds(self, game: Game) -> tuple[str, str]:
         """The next two queued kinds without mutating the game."""
@@ -408,19 +483,20 @@ class Bot:
             best = max(best, s)
         return best
 
-    def play(self, game: Game) -> None:
+    def plan_move(self, game: Game) -> tuple[bool, int, int] | None:
+        """Depth-2 plan as (hold, target_rot, target_x), or None."""
         p = game.piece
         if p is None or game.over:
-            return
+            return None
         n1, n2 = self._next_kinds(game)
         best_total: int | None = None
-        best_plan: tuple[str, int, int] | None = None  # (action, rot, x)
+        best_plan: tuple[bool, int, int] | None = None
 
         for s, rot, x, _y, cells in self._candidates(game.board, p.kind, p.y, self.TOP_K):
             sim, _cleared = place_piece(game.board, cells, x, _y)
             total = s + self._best_score(sim, n1)
             if best_total is None or total > best_total:
-                best_total, best_plan = total, ("drop", rot, x)
+                best_total, best_plan = total, (False, rot, x)
 
         if game.can_hold:
             hand, after = (n1, n2) if game.held_kind is None else (game.held_kind, n1)
@@ -428,24 +504,26 @@ class Bot:
                 sim, _cleared = place_piece(game.board, cells, x, _y)
                 total = s + self._best_score(sim, after)
                 if best_total is not None and total > best_total:
-                    best_total, best_plan = total, ("hold", rot, x)
+                    best_plan = (True, rot, x)
+        return best_plan
 
-        if best_plan is None:
+    def play(self, game: Game) -> None:
+        """Synchronous version (used by tests): plan and execute at once."""
+        plan = self.plan_move(game)
+        p = game.piece
+        if plan is None or p is None:
             game.hard_drop()
             return
-        if best_plan[0] == "hold":
+        if plan[0]:
             game.hold()
-        self._execute(game, best_plan[1], best_plan[2])
-
-    def _execute(self, game: Game, rot: int, x: int) -> None:
-        p = game.piece
-        if p is None or game.over:
-            return
-        for _ in range((rot - p.state) % 4):
+            p = game.piece
+            if p is None:
+                return
+        for _ in range((plan[1] - p.state) % 4):
             if not game.rotate(1):
                 game.hard_drop()
                 return
-        dx = x - p.x
+        dx = plan[2] - p.x
         for _ in range(abs(dx)):
             if not game.move(1 if dx > 0 else -1, 0):
                 game.hard_drop()
