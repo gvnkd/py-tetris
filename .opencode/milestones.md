@@ -47,6 +47,15 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [x] Smarter bot: depth-2 lookahead (top-8 placements × next piece) + hold usage; plays 1000+ line games
 - [x] Game modes: MARATHON (endless, level-up) / SPRINT (20 lines, fixed level, "YOU WIN") / ULTRA (2 min countdown, level 5, "TIME UP")
 
+## M6 — Cleanup (done)
+
+- [x] Deduplicated line-clear logic into shared `stamp_cells` / `clear_lines` board helpers; `place_piece`, `Game.lock` and `Game._clear_lines` all build on them (was three drifting copies)
+- [x] Dropped `dontCheckRuntimeDeps`: `pyproject` depends on `pygame` (the 26.05 dist name) so `pythonRuntimeDepsCheck` genuinely passes
+- [x] Centered the PAUSED / GAME OVER overlay text (was drawn from its left edge)
+- [x] Dedicated `hold` SFX instead of reusing the rotate tone
+- [x] DevShell `shellHook` walks up to the `flake.nix` marker so `PYTHONPATH` resolves from any subdirectory (no longer `$(pwd)/src`)
+- [x] Removed the dead-local-cache `--option substituters` workaround from README + memory (cache is reliable again)
+
 ## Backlog (ideas, not scheduled)
 
 - Deeper bot: 3–4 piece lookahead, T-spin setup search, better hold strategy

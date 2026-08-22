@@ -25,13 +25,6 @@ buttons start/restart in human mode.
 nix run .#
 ```
 
-If your local Nix binary cache is unreachable and builds stall on
-`narinfo` timeouts, point Nix at the public cache for the invocation:
-
-```sh
-nix run .# --option substituters "https://cache.nixos.org"
-```
-
 ## Controls
 
 | Key | Action |
@@ -69,7 +62,7 @@ nix flake check .#
 - `src/py_tetris/` — the package: `constants`, `pieces` (shapes + SRS),
   `audio` (SFX + Korobeiniki music), `highscore`, `game` (logic + bot,
   no pygame), `input` (DAS/ARR), `render`, `app` (entry point)
-- `tests/` — headless pytest suite (95 cases)
+- `tests/` — headless pytest suite (98 cases)
 - `pyproject.toml` — PEP 621 metadata, entry point, mypy/pytest config
 - `flake.nix` — packages/app/devShell/checks, pinned to nixos-26.05
   (see `flake.lock`)
