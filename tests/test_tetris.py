@@ -8,9 +8,18 @@ import random
 import pytest
 
 from py_tetris.audio import (
+    MUSIC_BEAT,
     THEME_A,
+    THEME_BASS,
     Music,
     Sounds,
+    _B1,
+    _B2,
+    _B_BRIDGE,
+    _B_CLIMAX,
+    _B_RUN,
+    _B_RUN2,
+    _B_WALKDOWN,
     _BRIDGE,
     _CLIMAX,
     _P1,
@@ -21,6 +30,7 @@ from py_tetris.audio import (
     _tone,
     note_freq,
     render_melody,
+    render_voices,
 )
 from py_tetris.background import Background
 from py_tetris.constants import (
@@ -787,6 +797,74 @@ def test_theme_a_is_well_formed():
             note_freq(name)  # must not raise
     assert THEME_A[0][0] == "E5"  # opens on the accented high E
     assert THEME_A[-1][0] == "G4"  # ends on the walkdown's final G
+
+
+def test_theme_bass_is_well_formed():
+    # the bass is the score's lower voice; each section matches its
+    # lead section's length so the voices stay in sync
+    assert sum(b for _, b in _B1) == 32
+    assert sum(b for _, b in _B2) == 32
+    assert sum(b for _, b in _B_BRIDGE) == 56
+    assert sum(b for _, b in _B_CLIMAX) == 8
+    assert sum(b for _, b in _B_RUN) == 32
+    assert sum(b for _, b in _B_RUN2) == 32
+    assert sum(b for _, b in _B_WALKDOWN) == 60
+    assert sum(beats for _, beats in THEME_BASS) == 380.0
+    # same statement structure as THEME_A: phrase x4, bridge, climax,
+    # runs x4, walkdown
+    assert THEME_BASS[: len(_B1) + len(_B2)] == _B1 + _B2
+    assert THEME_BASS[len(_B1) + len(_B2) : 2 * (len(_B1) + len(_B2))] == _B1 + _B2
+    for name, _ in THEME_BASS:
+        if name != "R":
+            assert note_freq(name) < note_freq("C4")  # stays under the lead
+    assert THEME_BASS[0][0] == "R"  # enters after the lead's first two beats
+    assert THEME_BASS[-1][0] == "R"  # walkdown rests: the lead is already the bass
+
+
+def test_render_melody_bass_mix():
+    lead = (("R", 2), ("E5", 2))
+    bass = (("B3", 4),)
+    data = render_melody(lead, 0.1, rate=8000, bass=bass)
+    # covers the full 4 beats (per-note rounding allows a few samples)
+    assert abs(len(data) / 2 - 4 * 800) < 50
+    assert data == render_melody(lead, 0.1, rate=8000, bass=bass)  # deterministic
+    # where the lead rests, only the bass sounds: not silent
+    first_beat = data[:1600]
+    peak = max(
+        abs(int.from_bytes(first_beat[i : i + 2], "little", signed=True))
+        for i in range(0, len(first_beat), 2)
+    )
+    assert peak > 0
+    # without a bass the output is the lead alone (unchanged behavior)
+    assert render_melody(lead, 0.1, rate=8000) == render_melody(
+        lead, 0.1, rate=8000, bass=None
+    )
+    # a loud mix is clamped to the 16-bit range, not lost
+    mono = render_melody(lead, 0.1, rate=8000, vol=0.9, bass=bass, bass_vol=0.9)
+    samples = [
+        int.from_bytes(mono[i : i + 2], "little", signed=True) for i in range(0, len(mono), 2)
+    ]
+    assert max(samples) == 32767
+
+
+def test_theme_render_with_bass_deterministic():
+    a = render_melody(THEME_A, MUSIC_BEAT, rate=8000, bass=THEME_BASS)
+    assert a == render_melody(THEME_A, MUSIC_BEAT, rate=8000, bass=THEME_BASS)
+    # covers the full 380 beats (per-note rounding allows a few samples)
+    expected = 8000 * MUSIC_BEAT * 380
+    assert abs(len(a) / 2 - expected) < 200
+
+
+def test_render_voices_length_aligned():
+    # polyphonic playback: lead and bass are separate buffers that must have
+    # the SAME sample count, or their independent play(-1) loops drift apart
+    bufs = render_voices(rate=8000)
+    assert len(bufs) == 2  # lead + bass
+    lens = {len(b) for b in bufs}
+    assert len(lens) == 1  # length-aligned
+    # covers the full 380 beats (a few samples of rounding slack)
+    expected = 8000 * MUSIC_BEAT * 380
+    assert abs(lens.pop() / 2 - expected) < 200
 
 
 def test_music_start_play_stop_without_mixer():

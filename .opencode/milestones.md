@@ -56,10 +56,19 @@ Baseline is M0 (done). Work top-down; each milestone should leave the game runna
 - [x] DevShell `shellHook` walks up to the `flake.nix` marker so `PYTHONPATH` resolves from any subdirectory (no longer `$(pwd)/src`)
 - [x] Removed the dead-local-cache `--option substituters` workaround from README + memory (cache is reliable again)
 
+## M7 — Music: bass line + polyphonic playback (done)
+
+- [x] `THEME_BASS`: per-section bass tables (`_B1`/`_B2`/…) transcribed from the score's lower staff (the 4|/3| lines), dropped to octave 3, each matching its lead section's length (32/32/56/8/32/32/60 beats)
+- [x] `render_melody(..., vol=, bass=, bass_vol=)`: independent per-voice amplitudes; square-wave lead mixed with a sine bass, clamped to 16-bit; lead-only output stays byte-identical to before
+- [x] `render_voices(rate)`: renders lead + bass as **separate, length-aligned** mono buffers (padded to one common sample count so independent `play(-1)` loops never drift)
+- [x] `Music` plays the voices **polyphonically** on separate mixer channels; levels via `LEAD_VOL`/`BASS_VOL`, tweakable at runtime with `Channel.set_volume`; `start`/`play`/`stop` interface unchanged
+- [x] Walkdown bass rests (the lead is already the score's low voice there)
+- [x] Tests: bass theme well-formedness (section sums, register under C4, statement structure), mix determinism, bass audible under lead rests, 16-bit clamping, polyphonic voice length-alignment
+
 ## Backlog (ideas, not scheduled)
 
 - Deeper bot: 3–4 piece lookahead, T-spin setup search, better hold strategy
-- Music: bass/chord voices under the lead; per-section dynamics (piano/ff) like the score
+- Music: chord voices under the lead (bass line landed in M7); per-section dynamics (piano/ff) like the score
 - Official sprint gravity (fixed fast level) and per-line ultra scaling
 - More modes (e.g. marathon level cap, "sudden death")
 - Key remapping / config file

@@ -151,14 +151,72 @@ THEME_A: tuple[tuple[str, float], ...] = (
 )
 MUSIC_BEAT = 60.0 / 190.0  # seconds per quarter note (score is 170; played a bit faster)
 
+# Bass line: the score's lower voice (the per-octave 4|/3| staff lines in
+# the transcription), dropped to octave 3 so it sits under the lead.
+# Each table has the same total length as its lead section, so the two
+# voices stay in sync. The walkdown lead is already in the bass register
+# (it is the score's 3| voice), so the walkdown bass rests.
+_B1: tuple[tuple[str, float], ...] = (  # phrase 1, 32 beats
+    ("R", 2),
+    ("B3", 5), ("B3", 1),
+    ("A3", 2), ("A3", 6),
+    ("B3", 2), ("B3", 0.5), ("B3", 7.5),
+    ("A3", 1.5), ("A3", 4.5),
+)
+_B2: tuple[tuple[str, float], ...] = (  # phrase 2, 32 beats
+    ("A3", 15),
+    ("B3", 1.5), ("B3", 0.5), ("B3", 9),
+    ("A3", 1.5), ("A3", 4.5),
+)
+_B_BRIDGE: tuple[tuple[str, float], ...] = (  # bridge, 56 beats
+    ("A3", 4), ("A3", 4),
+    ("B3", 4), ("G3", 4),
+    ("A3", 4), ("E3", 4),
+    ("E3", 4), ("G3", 7),
+    ("A3", 4), ("B3", 5),
+    ("G3", 4), ("A3", 8),
+)
+_B_CLIMAX: tuple[tuple[str, float], ...] = (  # held G5 climax, 8 beats
+    ("A3", 8),
+)
+_B_RUN: tuple[tuple[str, float], ...] = (  # run-through of the phrase, 32 beats
+    ("R", 2),
+    ("B3", 5), ("B3", 1),
+    ("A3", 2), ("A3", 6),
+    ("B3", 2), ("B3", 0.5), ("B3", 7.5),
+    ("A3", 1.5), ("A3", 4.5),
+)
+_B_RUN2: tuple[tuple[str, float], ...] = (  # run-through of phrase 2, 32 beats
+    ("A3", 15),
+    ("B3", 1.5), ("B3", 0.5), ("B3", 9),
+    ("A3", 1.5), ("A3", 4.5),
+)
+_B_WALKDOWN: tuple[tuple[str, float], ...] = (  # lead is already the bass here
+    ("R", 60),
+)
+THEME_BASS: tuple[tuple[str, float], ...] = (
+    _B1 + _B2 + _B1 + _B2
+    + _B_BRIDGE
+    + _B_CLIMAX
+    + _B_RUN + _B_RUN2 + _B_RUN + _B_RUN2
+    + _B_WALKDOWN
+)
 
-def render_melody(
+# Per-voice amplitudes (0..1). Kept separate so the lead and bass can be
+# balanced independently; both are well under full scale so the SDL mixer's
+# channel sum cannot clip.
+LEAD_VOL = 0.22  # square-wave lead
+BASS_VOL = 0.25  # sine bass (louder than the old baked 0.12 so it sits under the lead)
+
+
+def _voice_samples(
     notes: tuple[tuple[str, float], ...],
     beat: float,
-    rate: int = 22050,
-    vol: float = 0.22,
-) -> bytes:
-    """Render a melody of square-wave notes to 16-bit mono PCM."""
+    rate: int,
+    vol: float,
+    sine: bool = False,
+) -> array[int]:
+    """Render one voice (square lead or sine bass) to 16-bit samples."""
     samples = array("h")
     for name, beats in notes:
         n = max(1, int(rate * beat * beats))
@@ -169,34 +227,85 @@ def render_melody(
         amp = 32767.0 * vol
         for i in range(n):
             phase = (freq * i / rate) % 1.0
-            v = 1.0 if phase < 0.5 else -1.0
+            v = math.sin(2.0 * math.pi * phase) if sine else (1.0 if phase < 0.5 else -1.0)
             env = min(1.0, i / 120.0, (n - i) / (n * 0.2 + 1.0))
             samples.append(int(amp * v * env))
-    return samples.tobytes()
+    return samples
+
+
+def render_melody(
+    notes: tuple[tuple[str, float], ...],
+    beat: float,
+    rate: int = 22050,
+    vol: float = LEAD_VOL,
+    bass: tuple[tuple[str, float], ...] | None = None,
+    bass_vol: float = BASS_VOL,
+) -> bytes:
+    """Render a square-wave lead, optionally mixed with a sine bass, to 16-bit mono PCM.
+
+    `vol` and `bass_vol` are independent 0..1 amplitudes, so either voice can be
+    muted (vol=0.0) or boosted without affecting the other.
+    """
+    lead = _voice_samples(notes, beat, rate, vol)
+    if bass is None:
+        return lead.tobytes()
+    low = _voice_samples(bass, beat, rate, bass_vol, sine=True)
+    out = array("h")
+    for i in range(max(len(lead), len(low))):
+        s = (lead[i] if i < len(lead) else 0) + (low[i] if i < len(low) else 0)
+        out.append(max(-32768, min(32767, s)))
+    return out.tobytes()
+
+
+def render_voices(rate: int = 22050) -> list[bytes]:
+    """Render the lead and bass as separate mono buffers, length-aligned.
+
+    Each voice is padded to the same sample count so that looping them on
+    independent channels (Sound.play(-1)) stays in sync: per-note int()
+    rounding makes the raw voice lengths differ by a few samples, which would
+    otherwise drift out of phase across loop iterations.
+    """
+    lead = _voice_samples(THEME_A, MUSIC_BEAT, rate, LEAD_VOL)
+    bass = _voice_samples(THEME_BASS, MUSIC_BEAT, rate, BASS_VOL, sine=True)
+    n = max(len(lead), len(bass))
+    out: list[bytes] = []
+    for voice in (lead, bass):
+        padded = array("h", voice)
+        padded.extend([0] * (n - len(padded)))
+        out.append(padded.tobytes())
+    return out
 
 
 class Music:
-    """Loops the background melody; safe no-op when no audio device exists."""
+    """Loops the background music polyphonically: lead and bass on separate
+    channels, each length-aligned so the independent play(-1) loops stay in
+    sync. Per-voice level is set by LEAD_VOL/BASS_VOL (and can be tweaked at
+    runtime via Channel.set_volume). Safe no-op when no audio device exists."""
 
     def __init__(self) -> None:
-        self.sound: pygame.mixer.Sound | None = None
-        self.channel: pygame.mixer.Channel | None = None
+        self.sounds: list[pygame.mixer.Sound] = []
+        self.channels: list[pygame.mixer.Channel | None] = []
+        self._playing = False
 
     def start(self) -> None:
-        if self.sound is not None or not pygame.mixer.get_init():
+        if self.sounds or not pygame.mixer.get_init():
             return
         try:
             fmt = pygame.mixer.get_init()
             rate = fmt[0] if fmt is not None and fmt[0] else 22050
-            self.sound = pygame.mixer.Sound(buffer=render_melody(THEME_A, MUSIC_BEAT, rate))
+            self.sounds = [pygame.mixer.Sound(buffer=buf) for buf in render_voices(rate)]
         except pygame.error:
-            self.sound = None
+            self.sounds = []
 
     def play(self) -> None:
-        if self.sound is not None and self.channel is None:
-            self.channel = self.sound.play(-1)
+        if not self.sounds or self._playing:
+            return
+        self.channels = [s.play(-1) for s in self.sounds]
+        self._playing = True
 
     def stop(self) -> None:
-        if self.channel is not None:
-            self.channel.stop()
-            self.channel = None
+        for ch in self.channels:
+            if ch is not None:
+                ch.stop()
+        self.channels = []
+        self._playing = False

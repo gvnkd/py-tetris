@@ -14,8 +14,8 @@ buttons start/restart in human mode.
 - Guideline scoring: T-spins (full/mini), back-to-back, combos
 - Game modes: marathon / sprint / ultra
 - Persistent high score (`~/.config/py-tetris/highscore`)
-- Procedural sound effects and the Korobeiniki ("The Peddlers") theme —
-  no audio assets, everything is generated at startup
+- Procedural sound effects and the Korobeiniki ("The Peddlers") theme
+  with a bass line — no audio assets, everything is generated at startup
 - Depth-2 lookahead demo bot with hold usage
 - Installed as a desktop app (`py-tetris.desktop` + icon)
 
@@ -62,7 +62,7 @@ nix flake check .#
 - `src/py_tetris/` — the package: `constants`, `pieces` (shapes + SRS),
   `audio` (SFX + Korobeiniki music), `highscore`, `game` (logic + bot,
   no pygame), `input` (DAS/ARR), `render`, `app` (entry point)
-- `tests/` — headless pytest suite (98 cases)
+- `tests/` — headless pytest suite (102 cases)
 - `pyproject.toml` — PEP 621 metadata, entry point, mypy/pytest config
 - `flake.nix` — packages/app/devShell/checks, pinned to nixos-26.05
   (see `flake.lock`)
