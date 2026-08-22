@@ -19,6 +19,7 @@ import sys
 import pygame
 
 from py_tetris.audio import Music, Sounds
+from py_tetris.background import Background
 from py_tetris.constants import (
     DEMO_RESTART_DELAY,
     FPS,
@@ -57,6 +58,7 @@ def main() -> None:
     }
     game = Game(mode="demo")
     bot = Bot()
+    bg = Background(WIDTH, HEIGHT)
     demo_restart_timer = 0.0
     left, right, down = AutoRepeat(), AutoRepeat(), AutoRepeat()
 
@@ -162,7 +164,8 @@ def main() -> None:
         else:
             demo_restart_timer = 0.0
 
-        draw(screen, game, fonts)
+        bg.update(dt)
+        draw(screen, game, fonts, bg)
         pygame.display.flip()
 
         # consume the clear event after rendering (flash text needs it this frame)

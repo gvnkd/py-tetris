@@ -2,6 +2,7 @@
 
 import pygame
 
+from py_tetris.background import Background
 from py_tetris.constants import (
     BOARD_H,
     BOARD_W,
@@ -88,10 +89,29 @@ def draw_panel(
     draw_text(surf, title, rect.x + 10, rect.y + 8, f_small, DIM)
 
 
-def draw(screen: pygame.Surface, game: Game, fonts: dict[str, pygame.font.Font]) -> None:
+_board_overlay: pygame.Surface | None = None
+
+
+def _board_base() -> pygame.Surface:
+    """Translucent board fill so the animated background glows through."""
+    global _board_overlay
+    if _board_overlay is None:
+        _board_overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
+        _board_overlay.fill((*PANEL, 150))
+    return _board_overlay
+
+
+def draw(
+    screen: pygame.Surface,
+    game: Game,
+    fonts: dict[str, pygame.font.Font],
+    bg: Background | None = None,
+) -> None:
     screen.fill(BG)
+    if bg is not None:
+        bg.draw(screen)
     board_rect = pygame.Rect(0, 0, BOARD_W, BOARD_H)
-    pygame.draw.rect(screen, PANEL, board_rect)
+    screen.blit(_board_base(), board_rect)
 
     for y in range(ROWS):
         for x in range(COLS):

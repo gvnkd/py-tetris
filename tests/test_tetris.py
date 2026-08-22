@@ -22,6 +22,7 @@ from py_tetris.audio import (
     note_freq,
     render_melody,
 )
+from py_tetris.background import Background
 from py_tetris.constants import (
     ARR_INTERVAL,
     BOT_THINK_INTERVAL,
@@ -1108,16 +1109,75 @@ def test_render_frames_headless():
             "huge": pygame.font.Font(None, 64),
         }
         g = Game(mode="demo")
-        draw(screen, g, fonts)
+        bg = Background(WIDTH, HEIGHT)
+        draw(screen, g, fonts, bg)
         g.mode = "human"
-        draw(screen, g, fonts)
+        draw(screen, g, fonts, bg)
         g.last_cleared = 2
         g.clear_flash = CLEAR_FLASH_DURATION
-        draw(screen, g, fonts)  # with the line-clear flash
+        draw(screen, g, fonts, bg)  # with the line-clear flash
         g.paused = True
-        draw(screen, g, fonts)
+        draw(screen, g, fonts, bg)
         g.over = True
-        draw(screen, g, fonts)
+        draw(screen, g, fonts, bg)
         pygame.display.flip()
+    finally:
+        pygame.quit()
+
+
+def test_background_animates():
+    import pygame
+
+    pygame.init()
+    try:
+        bg = Background(WIDTH, HEIGHT, rng=random.Random(42))
+        screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        screen.fill((0, 0, 0))
+        bg.draw(screen)
+        first = screen.copy()
+        for _ in range(120):  # ~2 s of frames
+            bg.update(16.7)
+            screen.fill((0, 0, 0))
+            bg.draw(screen)
+        diff = sum(
+            1
+            for x in range(0, WIDTH, 5)
+            for y in range(0, HEIGHT, 5)
+            if screen.get_at((x, y))[:3] != first.get_at((x, y))[:3]
+        )
+        assert diff > 40  # the backdrop visibly moves
+    finally:
+        pygame.quit()
+
+
+def test_background_deterministic_with_seed():
+    import pygame
+
+    def frame() -> bytes:
+        bg = Background(WIDTH, HEIGHT, rng=random.Random(7))
+        for _ in range(30):
+            bg.update(16.7)
+        s = pygame.display.set_mode((WIDTH, HEIGHT))
+        s.fill((0, 0, 0))
+        bg.draw(s)
+        return pygame.image.tostring(s, "RGB")
+
+    pygame.init()
+    try:
+        assert frame() == frame()
+    finally:
+        pygame.quit()
+
+
+def test_background_wraps_offscreen_drifters():
+    import pygame
+
+    pygame.init()
+    try:
+        bg = Background(WIDTH, HEIGHT, rng=random.Random(1))
+        for _ in range(3600):  # ~60 s at 60 fps
+            bg.update(16.7)
+        for d in bg._drifters:
+            assert -60 <= d.y < HEIGHT + 60
     finally:
         pygame.quit()
