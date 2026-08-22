@@ -221,7 +221,8 @@ def draw(
         overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
         screen.blit(overlay, board_rect)
-        draw_text(screen, "PAUSED", BOARD_W // 2, BOARD_H // 2 - 40, fonts["huge"], WHITE)
+        img = fonts["huge"].render("PAUSED", True, WHITE)
+        screen.blit(img, (BOARD_W // 2 - img.get_width() // 2, BOARD_H // 2 - 40))
     if game.over:
         overlay = pygame.Surface((BOARD_W, BOARD_H), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 170))
@@ -232,6 +233,9 @@ def draw(
             title, tcolor = "TIME UP", (240, 80, 80)
         else:
             title, tcolor = "GAME OVER", (240, 80, 80)
-        draw_text(screen, title, BOARD_W // 2, BOARD_H // 2 - 70, fonts["huge"], tcolor)
-        draw_text(screen, f"Score: {game.score}", BOARD_W // 2, BOARD_H // 2 - 10, f_big, WHITE)
-        draw_text(screen, "R - restart   Q - quit", BOARD_W // 2, BOARD_H // 2 + 30, f_med, DIM)
+        img = fonts["huge"].render(title, True, tcolor)
+        screen.blit(img, (BOARD_W // 2 - img.get_width() // 2, BOARD_H // 2 - 70))
+        score = f_big.render(f"Score: {game.score}", True, WHITE)
+        screen.blit(score, (BOARD_W // 2 - score.get_width() // 2, BOARD_H // 2 - 10))
+        hint = f_med.render("R - restart   Q - quit", True, DIM)
+        screen.blit(hint, (BOARD_W // 2 - hint.get_width() // 2, BOARD_H // 2 + 30))

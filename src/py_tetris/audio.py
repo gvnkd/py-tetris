@@ -26,6 +26,7 @@ class Sounds:
     move: pygame.mixer.Sound | None = None
     rotate: pygame.mixer.Sound | None = None
     drop: pygame.mixer.Sound | None = None
+    hold: pygame.mixer.Sound | None = None
     hard: pygame.mixer.Sound | None = None
     clear: pygame.mixer.Sound | None = None
     tetris: pygame.mixer.Sound | None = None
@@ -43,6 +44,7 @@ class Sounds:
             s.move = pygame.mixer.Sound(buffer=_tone(240, 45, 0.3, rate))
             s.rotate = pygame.mixer.Sound(buffer=_tone(440, 60, 0.35, rate))
             s.drop = pygame.mixer.Sound(buffer=_tone(180, 50, 0.35, rate))
+            s.hold = pygame.mixer.Sound(buffer=_tone(330, 60, 0.35, rate))
             s.hard = pygame.mixer.Sound(buffer=_tone(90, 120, 0.5, rate))
             s.clear = pygame.mixer.Sound(buffer=_tone(660, 130, 0.5, rate))
             s.tetris = pygame.mixer.Sound(buffer=_tone(880, 220, 0.55, rate))

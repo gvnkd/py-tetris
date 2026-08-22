@@ -124,7 +124,7 @@ def main() -> None:
                             piece0 = game.piece
                             game.hold()
                             if game.piece is not piece0:
-                                sounds.play("rotate")
+                                sounds.play("hold")
                 elif event.key in (pygame.K_r, pygame.K_RETURN):
                     start_human_game("marathon")
             elif event.type == pygame.KEYUP:

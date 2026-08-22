@@ -33,21 +33,37 @@ def collides(board: list[list[Color | None]], cells: frozenset[tuple[int, int]],
     return False
 
 
-def place_piece(
-    board: list[list[Color | None]], cells: frozenset[tuple[int, int]], x: int, y: int
-) -> tuple[list[list[Color | None]], int]:
-    """Lock cells into the board, clear full rows; return (new board, cleared)."""
+def stamp_cells(
+    board: list[list[Color | None]],
+    cells: frozenset[tuple[int, int]],
+    x: int,
+    y: int,
+    color: Color = (0, 0, 0),
+) -> list[list[Color | None]]:
+    """Copy the board with the in-bounds piece cells stamped with color."""
     placed = [row[:] for row in board]
     for cx, cy in cells:
         bx, by = x + cx, y + cy
         if 0 <= bx < COLS and 0 <= by < ROWS:
-            placed[by][bx] = (0, 0, 0)
-    kept = [row for row in placed if any(c is None for c in row)]
+            placed[by][bx] = color
+    return placed
+
+
+def clear_lines(board: list[list[Color | None]]) -> tuple[list[list[Color | None]], int]:
+    """Drop full rows; return (new board, rows cleared)."""
+    kept = [row for row in board if any(c is None for c in row)]
     cleared = ROWS - len(kept)
     if cleared:
         fresh: list[list[Color | None]] = [[None] * COLS for _ in range(cleared)]
         return fresh + kept, cleared
-    return placed, 0
+    return board, 0
+
+
+def place_piece(
+    board: list[list[Color | None]], cells: frozenset[tuple[int, int]], x: int, y: int
+) -> tuple[list[list[Color | None]], int]:
+    """Lock cells into the board, clear full rows; return (new board, cleared)."""
+    return clear_lines(stamp_cells(board, cells, x, y))
 
 
 def evaluate_board(board: list[list[Color | None]]) -> int:
@@ -276,11 +292,7 @@ class Game:
         p = self.piece
         if p is None:
             return 0
-        color = COLORS[p.kind]
-        for cx, cy in p.cells:
-            x, y = p.x + cx, p.y + cy
-            if 0 <= x < COLS and 0 <= y < ROWS:
-                self.board[y][x] = color
+        self.board = stamp_cells(self.board, p.cells, p.x, p.y, COLORS[p.kind])
         tspin = self._detect_tspin(p)
         cleared = self._clear_lines()
         self.last_cleared = cleared
@@ -311,11 +323,8 @@ class Game:
             self.score += COMBO_BONUS * (self.combo - 1) * self.level
 
     def _clear_lines(self) -> int:
-        kept = [row for row in self.board if any(c is None for c in row)]
-        cleared = ROWS - len(kept)
+        self.board, cleared = clear_lines(self.board)
         if cleared:
-            fresh: list[list[Color | None]] = [[None] * COLS for _ in range(cleared)]
-            self.board = fresh + kept
             self.lines += cleared
             if self.game_mode == "marathon":
                 self.level = self.lines // 10 + 1

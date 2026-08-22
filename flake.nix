@@ -25,11 +25,12 @@
             pyproject = true;
             build-system = [ pkgs.python3Packages.setuptools ];
             dependencies = [ pkgs.python3Packages.pygame ];
-            # nixpkgs' "pygame" is pygame-ce (dist "pygame-ce") on unstable
-            # but upstream pygame (dist "pygame") on 26.05, so the wheel's
-            # Requires-Dist name check can never pass on both; the real
-            # dependency is provided by nix, so skip the redundant check
-            dontCheckRuntimeDeps = true;
+            # pyproject depends on "pygame" (upstream dist name), matching
+            # nixpkgs 26.05's python3Packages.pygame, so the wheel's
+            # Requires-Dist passes pythonRuntimeDepsCheck. If the flake is
+            # ever switched to nixos-unstable (where pygame is pygame-ce,
+            # dist name "pygame-ce"), that check fails again: either flip the
+            # pyproject dep to pygame-ce or re-add dontCheckRuntimeDeps.
             # the test suite runs in checks.default, not during the build
             doInstallCheck = false;
             postInstall = ''
@@ -71,11 +72,17 @@
           # NB: no dollar-brace parameter expansion in this string — Nix
           # interpolates dollar-brace groups in strings and would mangle the
           # shell code. Use bare $VAR, $(...), and if/else instead.
+          # Find the repo root by walking up to the flake.nix marker, so the
+          # hook works even when the shell is entered from a subdirectory.
           shellHook = ''
+            root="$(pwd)"
+            while [ "$root" != "/" ] && [ ! -f "$root/flake.nix" ]; do
+              root="$(dirname "$root")"
+            done
             if [ -n "$PYTHONPATH" ]; then
-              export PYTHONPATH="$(pwd)/src:$PYTHONPATH"
+              export PYTHONPATH="$root/src:$PYTHONPATH"
             else
-              export PYTHONPATH="$(pwd)/src"
+              export PYTHONPATH="$root/src"
             fi
             echo "Run the game with: python3 -m py_tetris  (or: nix run .#)"
             echo "Run the tests with: python3 -m pytest tests -v"
