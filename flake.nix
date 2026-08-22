@@ -68,8 +68,15 @@
             pkgs.python3Packages.pytest
             pkgs.python3Packages.mypy
           ];
+          # NB: no dollar-brace parameter expansion in this string — Nix
+          # interpolates dollar-brace groups in strings and would mangle the
+          # shell code. Use bare $VAR, $(...), and if/else instead.
           shellHook = ''
-            export PYTHONPATH="$(pwd)/src${PYTHONPATH:+:$PYTHONPATH}"
+            if [ -n "$PYTHONPATH" ]; then
+              export PYTHONPATH="$(pwd)/src:$PYTHONPATH"
+            else
+              export PYTHONPATH="$(pwd)/src"
+            fi
             echo "Run the game with: python3 -m py_tetris  (or: nix run .#)"
             echo "Run the tests with: python3 -m pytest tests -v"
             echo "Type-check with:   python3 -m mypy"
